@@ -1,0 +1,35 @@
+# AI Tools & Cache
+.claude/
+_bmad/
+_bmad-output/
+CLAUDE.md
+
+# Temporary files
+docs/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.pytest_cache/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+

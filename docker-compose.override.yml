@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  api-gateway:
+    volumes:
+      - ./api-gateway:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      ALLOWED_ORIGINS: "*"
+
+  agent-service:
+    volumes:
+      - ./agent-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+  lardi-connector:
+    volumes:
+      - ./lardi-connector:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+
+  auth-worker:
+    volumes:
+      - ./auth-worker:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload

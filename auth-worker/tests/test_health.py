@@ -1,8 +1,9 @@
 """
 test_health.py — тести для GET /health endpoint auth-worker.
 
-Перевіряє HTTP 200 (здоровий) та HTTP 503 (Redis недоступний).
+Перевіряє HTTP 200 (здоровий) та HTTP 503 (Redis недоступний або LTSID missing).
 app.state.redis встановлюється напряму, бо ASGITransport не запускає lifespan.
+З Story 2.1 health також перевіряє статус LTSID — тести встановлюють ltsid_store.
 """
 from __future__ import annotations
 
@@ -12,6 +13,17 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.session.ltsid_store import ltsid_store
+
+
+@pytest.fixture(autouse=True)
+def reset_ltsid_store():
+    """Скидає стан ltsid_store перед кожним тестом щоб уникнути side effects."""
+    ltsid_store._ltsid_memory = None
+    ltsid_store._mode = "missing"
+    yield
+    ltsid_store._ltsid_memory = None
+    ltsid_store._mode = "missing"
 
 
 @pytest.fixture
@@ -34,8 +46,10 @@ def mock_redis_down():
 
 @pytest.fixture
 async def client_ok(mock_redis_ok):
-    """AsyncClient з доступним Redis — app.state.redis встановлюється напряму."""
+    """AsyncClient з доступним Redis та valid LTSID."""
     app.state.redis = mock_redis_ok
+    ltsid_store._mode = "valid"
+    ltsid_store._ltsid_memory = "fake_ltsid_for_tests"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
@@ -44,6 +58,8 @@ async def client_ok(mock_redis_ok):
 async def client_redis_down(mock_redis_down):
     """AsyncClient з недоступним Redis."""
     app.state.redis = mock_redis_down
+    ltsid_store._mode = "valid"
+    ltsid_store._ltsid_memory = "fake_ltsid_for_tests"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 

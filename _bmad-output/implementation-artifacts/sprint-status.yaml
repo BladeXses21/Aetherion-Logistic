@@ -54,8 +54,8 @@ development_status:
   # ─────────────────────────────────────────────
   # Epic 2: Automated Lardi Session Management
   # ─────────────────────────────────────────────
-  epic-2: backlog
-  2-1-initial-ltsid-acquisition-on-startup: backlog
+  epic-2: in-progress
+  2-1-initial-ltsid-acquisition-on-startup: done
   2-2-proactive-ltsid-refresh-scheduler: backlog
   2-3-emergency-refresh-via-redis-pub-sub: backlog
   2-4-manual-session-management-admin-endpoint: backlog

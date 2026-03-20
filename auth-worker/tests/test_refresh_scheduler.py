@@ -13,13 +13,12 @@
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.core.errors import ChromeStartupError, LtsidFetchError
 from app.scheduler.refresh_scheduler import check_and_refresh_ltsid, create_scheduler
-from app.session.ltsid_store import LTSID_REDIS_KEY, LtsidStore, ltsid_store
+from app.session.ltsid_store import LTSID_REDIS_KEY, ltsid_store
 
 FAKE_LTSID = "abc123fake_ltsid_value_for_tests_xyz"
 

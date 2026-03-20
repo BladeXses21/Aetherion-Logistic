@@ -55,9 +55,8 @@ async def check_and_refresh_ltsid(redis_client) -> None:
         return
 
     # Крок 2: Перевірити чи потрібен refresh
-    # ttl < 0 означає: ключ відсутній (-2) або без TTL (-1) — завжди оновлюємо
-    needs_refresh = ttl < 0 or ttl < settings.ltsid_refresh_threshold_seconds
-    if not needs_refresh:
+    # ttl < 0: ключ відсутній (-2) або без TTL (-1) — обидва < threshold, тому завжди оновлюємо
+    if not ttl < settings.ltsid_refresh_threshold_seconds:
         log.debug("ltsid_proactive_refresh_skipped", ttl_remaining_seconds=ttl)
         return
 

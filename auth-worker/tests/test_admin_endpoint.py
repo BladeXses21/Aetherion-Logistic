@@ -97,6 +97,7 @@ async def test_admin_refresh_valid_key_returns_ltsid_ttl():
     data = response.json()
     assert isinstance(data["ltsid_ttl_seconds"], int)
     assert data["ltsid_ttl_seconds"] == FAKE_TTL
+    assert data["ltsid_ttl_seconds"] >= 0
 
 
 async def test_admin_refresh_valid_key_returns_refreshed_at():
@@ -117,7 +118,7 @@ async def test_admin_refresh_valid_key_returns_refreshed_at():
 
 
 async def test_admin_refresh_calls_fetch_ltsid():
-    """fetch_ltsid викликається при валідному ключі."""
+    """fetch_ltsid викликається з правильними аргументами при валідному ключі."""
     with patch(
         "app.api.admin.fetch_ltsid", new=AsyncMock(return_value=FAKE_LTSID)
     ) as mock_fetch:
@@ -130,7 +131,28 @@ async def test_admin_refresh_calls_fetch_ltsid():
                     headers={"X-API-Key": settings.admin_api_key},
                 )
 
-    mock_fetch.assert_called_once()
+    mock_fetch.assert_called_once_with(
+        login=settings.lardi_login,
+        password=settings.lardi_password,
+        timeout_seconds=settings.chrome_timeout_seconds,
+    )
+
+
+async def test_admin_refresh_calls_ltsid_store_on_success():
+    """ltsid_store.store викликається після успішного отримання LTSID."""
+    with patch("app.api.admin.fetch_ltsid", new=AsyncMock(return_value=FAKE_LTSID)):
+        with patch(
+            "app.api.admin.ltsid_store.store", new=AsyncMock()
+        ) as mock_store:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                await client.post(
+                    "/admin/ltsid/refresh",
+                    headers={"X-API-Key": settings.admin_api_key},
+                )
+
+    mock_store.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,19 @@
+"""config.py — Типізована конфігурація auth-worker через pydantic-settings.
+
+Всі значення читаються з ENV змінних (або .env файлу).
+Валідація виконується автоматично при старті сервісу — якщо обов'язкова
+змінна відсутня або має неправильний тип, сервіс відмовить з описом помилки.
+"""
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    """Налаштування auth-worker сервісу.
+
+    Всі поля відповідають ENV змінним (case-insensitive).
+    Значення за замовчуванням безпечні для dev-середовища.
+    """
+
     redis_url: str = "redis://redis:6379/0"
     lardi_login: str = ""
     lardi_password: str = ""
@@ -16,6 +28,10 @@ class Settings(BaseSettings):
     fuel_price_url: str = ""
     fuel_price_http_timeout_seconds: int = 5
     fuel_price_css_selector: str = ""
+
+    # Story 2.2: Proactive LTSID Refresh Scheduler
+    ltsid_proactive_check_interval_seconds: int = 1800  # 30 хвилин між перевірками TTL
+    ltsid_refresh_threshold_seconds: int = 3600  # поріг TTL для proactive refresh (1 година)
 
     model_config = {"env_file": ".env", "case_sensitive": False}
 

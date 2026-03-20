@@ -13,6 +13,7 @@ from app.api import health
 from app.browser.lardi_login import fetch_ltsid
 from app.core.config import settings  # noqa: F401 — validates ENV on startup
 from app.core.errors import ChromeStartupError, LtsidFetchError
+from app.scheduler.refresh_scheduler import create_scheduler
 from app.session.ltsid_store import ltsid_store
 
 log = structlog.get_logger()
@@ -52,15 +53,22 @@ async def lifespan(app: FastAPI):
     # Story 2.1: отримати початковий LTSID через Chrome login
     await _fetch_initial_ltsid(app.state.redis)
 
-    # TODO Story 2.2: запустити планувальник proactive refresh (APScheduler)
+    # Story 2.2: запустити планувальник proactive refresh (APScheduler)
+    scheduler = create_scheduler(app.state.redis)
+    scheduler.start()
+    log.info("ltsid_proactive_refresh_scheduler_started",
+             interval_seconds=settings.ltsid_proactive_check_interval_seconds)
+
     # TODO Story 2.3: підписатись на Redis pub/sub канал aetherion:auth:refresh
     # TODO Story 3.5: запустити fuel price fetcher (async, non-blocking)
 
     yield
 
+    # Story 2.2: зупинити scheduler
+    scheduler.shutdown(wait=False)
+
     # Закриття Redis pool при зупинці
     await app.state.redis.aclose()
-    # TODO Story 2.2: зупинити scheduler
     # TODO Story 2.3: відписатись від pub/sub
 
 

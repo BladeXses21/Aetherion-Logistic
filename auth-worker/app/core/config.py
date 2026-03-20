@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     admin_api_key: str = "changeme-replace-in-production"
     ltsid_ttl_hours: int = 23
     fuel_cache_ttl_seconds: int = 3600
-    ltsid_refresh_lock_ttl_seconds: int = 120
+    ltsid_refresh_lock_ttl_seconds: int = 120  # 2×chrome_timeout (ARCH4 spec: 300 → знижено свідомо)
     chrome_timeout_seconds: int = 60
     ltsid_refresh_wait_seconds: int = 90
     refresh_circuit_breaker_threshold: int = 3

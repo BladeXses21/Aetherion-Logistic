@@ -394,3 +394,51 @@ async def test_listen_skips_event_when_circuit_open():
                 await listen_for_refresh_events(mock_redis)
 
     mock_refresh.assert_not_called()
+
+
+async def test_listen_calls_do_emergency_refresh_when_message_received():
+    """Повідомлення type='message' при закритому circuit → _do_emergency_refresh викликається."""
+
+    async def fake_listen():
+        yield {
+            "type": "message",
+            "channel": "aetherion:auth:refresh",
+            "data": '{"event": "refresh_requested"}',
+        }
+        raise asyncio.CancelledError
+
+    mock_pubsub = AsyncMock()
+    mock_pubsub.listen = fake_listen
+    mock_redis = AsyncMock()
+    mock_redis.pubsub = MagicMock(return_value=mock_pubsub)
+
+    with patch(
+        "app.pubsub.emergency_refresh._do_emergency_refresh", new=AsyncMock()
+    ) as mock_refresh:
+        with pytest.raises(asyncio.CancelledError):
+            await listen_for_refresh_events(mock_redis)
+
+    mock_refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Тести: _wait_for_lock_release — timeout path
+# ---------------------------------------------------------------------------
+
+
+async def test_wait_for_lock_release_logs_warning_on_timeout():
+    """Якщо lock не звільняється до дедлайну — логується WARNING 'ltsid_refresh_lock_wait_timeout'."""
+    mock_redis = AsyncMock()
+    mock_redis.exists = AsyncMock(return_value=1)  # lock завжди зайнятий
+
+    # Встановлюємо нульовий wait_seconds щоб дедлайн настав одразу
+    with patch("app.pubsub.emergency_refresh.settings") as mock_settings:
+        mock_settings.ltsid_refresh_wait_seconds = 0
+        with patch("app.pubsub.emergency_refresh.log") as mock_log:
+            from app.pubsub.emergency_refresh import _wait_for_lock_release
+            await _wait_for_lock_release(mock_redis)
+
+    mock_log.warning.assert_called_once_with(
+        "ltsid_refresh_lock_wait_timeout",
+        timeout_seconds=0,
+    )

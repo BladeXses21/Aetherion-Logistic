@@ -10,7 +10,7 @@ import redis.asyncio as redis
 import structlog
 from fastapi import FastAPI
 
-from app.api import health
+from app.api import admin, health
 from app.browser.lardi_login import fetch_ltsid
 from app.core.config import settings  # noqa: F401 — validates ENV on startup
 from app.core.errors import ChromeStartupError, LtsidFetchError
@@ -87,3 +87,4 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(admin.router)

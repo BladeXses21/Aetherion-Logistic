@@ -3,16 +3,19 @@
 Відповідає за ініціалізацію Redis, отримання LTSID при старті (Story 2.1),
 запуск планувальника оновлення (Story 2.2) та pub/sub підписку (Story 2.3).
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
 import structlog
 from fastapi import FastAPI
 
-from app.api import health
+from app.api import admin, health
 from app.browser.lardi_login import fetch_ltsid
 from app.core.config import settings  # noqa: F401 — validates ENV on startup
 from app.core.errors import ChromeStartupError, LtsidFetchError
+from app.pubsub.emergency_refresh import listen_for_refresh_events
+from app.scheduler.refresh_scheduler import create_scheduler
 from app.session.ltsid_store import ltsid_store
 
 log = structlog.get_logger()
@@ -52,16 +55,29 @@ async def lifespan(app: FastAPI):
     # Story 2.1: отримати початковий LTSID через Chrome login
     await _fetch_initial_ltsid(app.state.redis)
 
-    # TODO Story 2.2: запустити планувальник proactive refresh (APScheduler)
-    # TODO Story 2.3: підписатись на Redis pub/sub канал aetherion:auth:refresh
+    # Story 2.2: запустити планувальник proactive refresh (APScheduler)
+    scheduler = create_scheduler(app.state.redis)
+    scheduler.start()
+    log.info("ltsid_proactive_refresh_scheduler_started",
+             interval_seconds=settings.ltsid_proactive_check_interval_seconds)
+
+    # Story 2.3: підписатись на Redis pub/sub канал aetherion:auth:refresh
+    pubsub_task = asyncio.create_task(listen_for_refresh_events(app.state.redis))
+    log.info("redis_pubsub_task_started", channel="aetherion:auth:refresh")
+
     # TODO Story 3.5: запустити fuel price fetcher (async, non-blocking)
 
     yield
 
+    # Story 2.2: зупинити scheduler
+    scheduler.shutdown(wait=False)
+
+    # Story 2.3: зупинити pub/sub listener
+    pubsub_task.cancel()
+    await asyncio.gather(pubsub_task, return_exceptions=True)
+
     # Закриття Redis pool при зупинці
     await app.state.redis.aclose()
-    # TODO Story 2.2: зупинити scheduler
-    # TODO Story 2.3: відписатись від pub/sub
 
 
 app = FastAPI(
@@ -71,3 +87,4 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(admin.router)

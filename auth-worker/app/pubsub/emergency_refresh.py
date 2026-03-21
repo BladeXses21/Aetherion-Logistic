@@ -152,18 +152,23 @@ async def _wait_for_lock_release(redis_client) -> None:
     Polling з інтервалом 1 секунда, максимальний час очікування визначається
     налаштуванням `LTSID_REFRESH_WAIT_SECONDS` (дефолт: 90 секунд).
 
+    Fail-closed: якщо Redis недоступний під час polling — вважаємо lock зайнятим
+    та продовжуємо чекати. Це гарантує, що Chrome НЕ запускається двічі навіть
+    при тимчасовій недоступності Redis.
+
     Args:
         redis_client: Async Redis клієнт.
     """
     deadline = time.monotonic() + settings.ltsid_refresh_wait_seconds
     while time.monotonic() < deadline:
         try:
-            lock_exists = await redis_client.exists(REFRESH_LOCK_KEY)
-            if not lock_exists:
-                return
+            lock_still_held = await redis_client.exists(REFRESH_LOCK_KEY)
         except Exception:
-            # Якщо Redis недоступний під час polling — просто виходимо
-            log.warning("redis_unavailable_during_lock_wait")
+            # Fail-closed: Redis недоступний → вважаємо lock зайнятим,
+            # продовжуємо чекати. Chrome НЕ запускається.
+            log.warning("redis_error_during_lock_poll_assuming_held")
+            lock_still_held = True
+        if not lock_still_held:
             return
         await asyncio.sleep(1)
 

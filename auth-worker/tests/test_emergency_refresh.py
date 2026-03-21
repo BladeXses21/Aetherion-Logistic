@@ -422,7 +422,7 @@ async def test_listen_calls_do_emergency_refresh_when_message_received():
 
 
 # ---------------------------------------------------------------------------
-# Тести: _wait_for_lock_release — timeout path
+# Тести: _wait_for_lock_release — timeout path та fail-closed behavior
 # ---------------------------------------------------------------------------
 
 
@@ -442,3 +442,77 @@ async def test_wait_for_lock_release_logs_warning_on_timeout():
         "ltsid_refresh_lock_wait_timeout",
         timeout_seconds=0,
     )
+
+
+async def test_wait_for_lock_release_redis_error_does_not_call_chrome():
+    """Fail-closed: Redis error під час polling → Chrome НЕ запускається.
+
+    При помилці Redis.exists() всередині циклу — lock вважається зайнятим.
+    Після закінчення дедлайну логується timeout warning.
+    Chrome не викликається — гарантія єдиного refresh зберігається.
+    """
+    from app.pubsub.emergency_refresh import _wait_for_lock_release
+
+    mock_redis = AsyncMock()
+    mock_redis.exists = AsyncMock(side_effect=ConnectionError("Redis down"))
+
+    with patch("app.pubsub.emergency_refresh.settings") as mock_settings:
+        mock_settings.ltsid_refresh_wait_seconds = 0  # дедлайн одразу
+        with patch("app.pubsub.emergency_refresh.log") as mock_log:
+            await _wait_for_lock_release(mock_redis)
+
+    # Timeout warning — loop вийшов через дедлайн, не через "lock released"
+    mock_log.warning.assert_called_with(
+        "ltsid_refresh_lock_wait_timeout",
+        timeout_seconds=0,
+    )
+
+
+async def test_wait_for_lock_release_redis_error_logs_assuming_held():
+    """Fail-closed: Redis error → логується WARNING 'redis_error_during_lock_poll_assuming_held'."""
+    from app.pubsub.emergency_refresh import _wait_for_lock_release
+
+    mock_redis = AsyncMock()
+    # Перша помилка Redis, потім lock звільняється — щоб loop завершився
+    mock_redis.exists = AsyncMock(
+        side_effect=[ConnectionError("Redis down"), 0]
+    )
+
+    with patch("app.pubsub.emergency_refresh.settings") as mock_settings:
+        mock_settings.ltsid_refresh_wait_seconds = 10
+        with patch("app.pubsub.emergency_refresh.log") as mock_log:
+            with patch("asyncio.sleep", new=AsyncMock()):
+                await _wait_for_lock_release(mock_redis)
+
+    # Перший call — warning про Redis error
+    mock_log.warning.assert_called_once_with(
+        "redis_error_during_lock_poll_assuming_held"
+    )
+
+
+async def test_wait_for_lock_release_redis_error_chrome_not_launched():
+    """Fail-closed: Redis error під час dedup polling → _do_emergency_refresh не викликає Chrome.
+
+    Перевіряє що race condition виключено: при помилці Redis під час polling
+    fetch_ltsid НЕ викликається — гарантія єдиного refresh зберігається.
+    """
+    circuit_breaker = CircuitBreaker(threshold=3, pause_seconds=600)
+
+    mock_redis = AsyncMock()
+    # SET NX повертає None — lock зайнятий, входимо в dedup wait
+    mock_redis.set = AsyncMock(return_value=None)
+    # exists кидає виключення — Redis недоступний
+    mock_redis.exists = AsyncMock(side_effect=ConnectionError("Redis down"))
+
+    with patch("app.pubsub.emergency_refresh.fetch_ltsid", new=AsyncMock(return_value=FAKE_LTSID)) as mock_fetch:
+        with patch("app.pubsub.emergency_refresh.settings") as mock_settings:
+            mock_settings.ltsid_refresh_lock_ttl_seconds = 120
+            mock_settings.ltsid_refresh_wait_seconds = 0  # дедлайн одразу
+            mock_settings.lardi_login = "user"
+            mock_settings.lardi_password = "pass"
+            mock_settings.chrome_timeout_seconds = 60
+            mock_settings.ltsid_ttl_hours = 23
+            await _do_emergency_refresh(mock_redis, circuit_breaker)
+
+    # Chrome НЕ викликається — гарантія єдиного refresh
+    mock_fetch.assert_not_called()

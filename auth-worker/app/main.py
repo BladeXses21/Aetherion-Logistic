@@ -15,6 +15,7 @@ from app.browser.lardi_login import fetch_ltsid
 from app.core.config import settings  # noqa: F401 — validates ENV on startup
 from app.core.errors import ChromeStartupError, LtsidFetchError
 from app.pubsub.emergency_refresh import listen_for_refresh_events
+from app.scheduler.fuel_fetcher import fetch_and_store_fuel_price
 from app.scheduler.refresh_scheduler import create_scheduler
 from app.session.ltsid_store import ltsid_store
 
@@ -65,7 +66,9 @@ async def lifespan(app: FastAPI):
     pubsub_task = asyncio.create_task(listen_for_refresh_events(app.state.redis))
     log.info("redis_pubsub_task_started", channel="aetherion:auth:refresh")
 
-    # TODO Story 3.5: запустити fuel price fetcher (async, non-blocking)
+    # Story 3.5: запуск початкового отримання ціни палива (non-blocking)
+    asyncio.create_task(fetch_and_store_fuel_price(app.state.redis))
+    log.info("fuel_price_fetch_task_started")
 
     yield
 

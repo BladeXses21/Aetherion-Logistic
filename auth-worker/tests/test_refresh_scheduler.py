@@ -257,13 +257,15 @@ def test_create_scheduler_returns_asyncio_scheduler():
 
 
 def test_create_scheduler_has_job_configured():
-    """Scheduler містить задачу ltsid_proactive_refresh."""
+    """Scheduler містить задачі ltsid_proactive_refresh та fuel_price_refresh."""
     mock_redis = AsyncMock()
     scheduler = create_scheduler(mock_redis)
     jobs = scheduler.get_jobs()
+    job_ids = {job.id for job in jobs}
 
-    assert len(jobs) == 1
-    assert jobs[0].id == "ltsid_proactive_refresh"
+    assert len(jobs) == 2
+    assert "ltsid_proactive_refresh" in job_ids
+    assert "fuel_price_refresh" in job_ids
 
 
 def test_create_scheduler_job_has_correct_function():

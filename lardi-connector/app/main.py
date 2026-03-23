@@ -4,6 +4,7 @@
 Lifespan керує:
   - Redis connection pool
   - QueueManager (фоновий BLPOP-консьюмер для Lardi-запитів)
+  - LardiClient (HTTP-клієнт для Lardi API, Story 3.2)
 """
 
 from contextlib import asynccontextmanager
@@ -11,9 +12,10 @@ from contextlib import asynccontextmanager
 import redis.asyncio as redis
 from fastapi import FastAPI
 
-from app.api import health
+from app.api import health, search
 from app.core.config import settings  # noqa: F401 — validates ENV on startup
 from app.queue.queue_manager import QueueManager
+from app.services.lardi_client import LardiClient
 
 
 @asynccontextmanager
@@ -24,6 +26,12 @@ async def lifespan(app: FastAPI):
     # Запуск менеджера черги (Story 3.1): всі Lardi-запити проходять через нього
     app.state.queue_manager = QueueManager(app.state.redis)
     await app.state.queue_manager.start()
+
+    # Ініціалізація HTTP-клієнта для Lardi API (Story 3.2)
+    app.state.lardi_client = LardiClient(
+        base_url=settings.lardi_base_url,
+        timeout_seconds=settings.lardi_http_timeout_seconds,
+    )
 
     yield
 
@@ -39,3 +47,4 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(search.router)

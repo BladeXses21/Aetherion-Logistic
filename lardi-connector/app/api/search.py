@@ -25,7 +25,8 @@ from app.schemas.search import (
     CargoSearchResponse,
     Direction,
 )
-from app.services.lardi_client import LardiClient, LardiTimeoutError
+from app.services.lardi_client import LardiClient, LardiHTTPError, LardiTimeoutError
+from app.services.retry_handler import LtsidRefreshError, handle_401_and_retry, with_rate_limit_retry
 
 router = APIRouter(tags=["search"])
 
@@ -133,8 +134,31 @@ async def search_cargo(payload: CargoSearchRequest, request: Request) -> CargoSe
     lardi_client: LardiClient = request.app.state.lardi_client
 
     async def do_search() -> dict:
-        """Обгортка корутини пошуку — передається в QueueManager як coro_factory."""
-        return await lardi_client.search(lardi_payload, ltsid, request_id)
+        """
+        Обгортка корутини пошуку з підтримкою 401 auto-recovery та rate limit retry.
+
+        Виконує пошук з поточним LTSID. При 401 — запускає handle_401_and_retry,
+        що публікує refresh_requested і чекає нового LTSID. При 429/503 —
+        with_rate_limit_retry повторює до 3 разів з exponential backoff.
+        """
+        async def search_with_ltsid(current_ltsid: str) -> dict:
+            """Виконує пошук з конкретним LTSID — використовується при refresh."""
+            return await lardi_client.search(lardi_payload, current_ltsid, request_id)
+
+        async def execute() -> dict:
+            """Виконує початковий запит; при 401 ініціює авто-відновлення сесії."""
+            try:
+                return await search_with_ltsid(ltsid)
+            except LardiHTTPError as exc:
+                if exc.status_code == 401:
+                    return await handle_401_and_retry(
+                        search_with_ltsid,
+                        redis_client,
+                        request_id,
+                    )
+                raise
+
+        return await with_rate_limit_retry(execute, request_id)
 
     queue_manager: QueueManager = request.app.state.queue_manager
     try:
@@ -150,6 +174,19 @@ async def search_cargo(payload: CargoSearchRequest, request: Request) -> CargoSe
         raise HTTPException(
             status_code=504,
             detail={"error": {"code": "LARDI_TIMEOUT"}},
+        )
+    except LtsidRefreshError as exc:
+        # 401 авто-recovery завершилось невдачею (timeout або повторний 401)
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"code": exc.code, **({"details": exc.details} if exc.details else {})}},
+        )
+    except LardiHTTPError as exc:
+        # Інші HTTP помилки від Lardi (400, 404, 500, тощо)
+        log.error("lardi_search_http_error_in_endpoint", status_code=exc.status_code)
+        raise HTTPException(
+            status_code=502,
+            detail={"error": {"code": "LARDI_SEARCH_UNAVAILABLE"}},
         )
 
     # Крок 6: Парсимо відповідь та повертаємо нормалізовану структуру

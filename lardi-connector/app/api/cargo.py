@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.queue.queue_manager import QueueManager, QueueUnavailableError
 from app.schemas.cargo import CargoDetailResponse
 from app.services.lardi_client import LardiClient, LardiHTTPError, LardiTimeoutError
+from app.services.retry_handler import LtsidRefreshError, handle_401_and_retry, with_rate_limit_retry
 
 router = APIRouter(tags=["cargo"])
 
@@ -72,8 +73,31 @@ async def get_cargo_detail(cargo_id: int, request: Request) -> CargoDetailRespon
     lardi_client: LardiClient = request.app.state.lardi_client
 
     async def do_detail() -> dict:
-        """Обгортка корутини деталей — передається в QueueManager як coro_factory."""
-        return await lardi_client.get_cargo_detail(cargo_id, ltsid, request_id)
+        """
+        Обгортка корутини деталей з підтримкою 401 auto-recovery та rate limit retry.
+
+        При 401 — запускає handle_401_and_retry (публікує refresh_requested,
+        чекає нового LTSID, повторює запит). При 429/503 — with_rate_limit_retry
+        повторює до 3 разів з exponential backoff + jitter.
+        """
+        async def detail_with_ltsid(current_ltsid: str) -> dict:
+            """Виконує запит деталей вантажу з конкретним LTSID."""
+            return await lardi_client.get_cargo_detail(cargo_id, current_ltsid, request_id)
+
+        async def execute() -> dict:
+            """Виконує початковий запит; при 401 ініціює авто-відновлення сесії."""
+            try:
+                return await detail_with_ltsid(ltsid)
+            except LardiHTTPError as exc:
+                if exc.status_code == 401:
+                    return await handle_401_and_retry(
+                        detail_with_ltsid,
+                        redis_client,
+                        request_id,
+                    )
+                raise
+
+        return await with_rate_limit_retry(execute, request_id)
 
     queue_manager: QueueManager = request.app.state.queue_manager
     try:
@@ -89,13 +113,18 @@ async def get_cargo_detail(cargo_id: int, request: Request) -> CargoDetailRespon
             status_code=504,
             detail={"error": {"code": "LARDI_TIMEOUT"}},
         )
+    except LtsidRefreshError as exc:
+        # 401 авто-recovery завершилось невдачею (timeout або повторний 401)
+        raise HTTPException(
+            status_code=503,
+            detail={"error": {"code": exc.code, **({"details": exc.details} if exc.details else {})}},
+        )
     except LardiHTTPError as exc:
         if exc.status_code == 404:
             raise HTTPException(
                 status_code=404,
                 detail={"error": {"code": "CARGO_NOT_FOUND", "message": f"Cargo {cargo_id} not found"}},
             )
-        # 401 та інші — 502 (retry буде в Story 3.4)
         log.error("lardi_detail_error", status_code=exc.status_code)
         raise HTTPException(
             status_code=502,

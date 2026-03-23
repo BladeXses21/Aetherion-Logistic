@@ -260,14 +260,28 @@ async def test_get_cargo_detail_lardi_500_returns_502(detail_client):
     assert response.json()["detail"]["error"]["code"] == "LARDI_DETAIL_UNAVAILABLE"
 
 
-async def test_get_cargo_detail_lardi_401_returns_502(detail_client):
-    """Lardi 401 → наш HTTP 502 (retry буде в Story 3.4)."""
+async def test_get_cargo_detail_lardi_401_triggers_recovery_returns_503_timeout(detail_client):
+    """
+    Lardi 401 → запускає 401 авто-recovery (Story 3.4).
+
+    wait_for_new_ltsid мокується щоб повернути None (таймаут),
+    тому відповідь → HTTP 503 LTSID_REFRESH_TIMEOUT.
+    """
     ac, _, _, mock_lardi = detail_client
     mock_lardi.get_cargo_detail = AsyncMock(side_effect=LardiHTTPError(401))
 
-    response = await ac.get(f"/cargo/{CARGO_ID}")
+    with (
+        patch("app.services.retry_handler.publish_refresh_request", new_callable=AsyncMock),
+        patch(
+            "app.services.retry_handler.wait_for_new_ltsid",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+    ):
+        response = await ac.get(f"/cargo/{CARGO_ID}")
 
-    assert response.status_code == 502
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"]["code"] == "LTSID_REFRESH_TIMEOUT"
 
 
 # ---------------------------------------------------------------------------

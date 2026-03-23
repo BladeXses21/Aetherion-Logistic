@@ -10,6 +10,8 @@ httpx.AsyncClient (stateless), що дозволяє легко тестуват
 """
 from __future__ import annotations
 
+import hashlib
+
 import httpx
 import structlog
 
@@ -55,6 +57,8 @@ class LardiClient:
 
     # Шлях до ендпоінту пошуку вантажів на Lardi
     SEARCH_PATH = "/webapi/proposal/search/gruz/"
+    # Шаблон URL для деталей конкретного вантажу — {id} підставляється при виклику
+    DETAIL_PATH_TEMPLATE = "/webapi/proposal/offer/gruz/{id}/awaiting/"
 
     def __init__(self, base_url: str, timeout_seconds: int) -> None:
         """
@@ -139,4 +143,88 @@ class LardiClient:
             raise LardiHTTPError(response.status_code, response.text)
 
         log.info("lardi_search_success", status_code=response.status_code)
+        return response.json()
+
+    async def get_cargo_detail(self, cargo_id: int, ltsid: str, request_id: str) -> dict:
+        """
+        Отримує повні деталі вантажу, включаючи контакт вантажовідправника.
+
+        Звертається до GET /webapi/proposal/offer/gruz/{id}/awaiting/?currentId={id}
+        — єдиного ендпоінту Lardi що повертає proposalUser з телефоном.
+
+        ВАЖЛИВО: У structlog логується ltsid_hash (перші 8 символів sha256),
+        але НЕ саме значення LTSID — для безпеки сесії.
+
+        Args:
+            cargo_id: Числовий ідентифікатор вантажу (64-бітний int).
+            ltsid: Значення cookie LTSID для авторизації на Lardi.
+            request_id: UUID запиту — прив'язується до structlog подій.
+
+        Returns:
+            Розпарсений JSON-словник відповіді від Lardi API
+            (структура: {"cargo": {...}, "offers": []}).
+
+        Raises:
+            LardiTimeoutError: якщо Lardi не відповів протягом timeout_seconds.
+            LardiHTTPError(404): якщо вантаж не знайдено на Lardi.
+            LardiHTTPError(401): якщо сесія LTSID застаріла.
+            LardiHTTPError(status_code): для інших HTTP помилок.
+
+        Приклад:
+            result = await lardi_client.get_cargo_detail(
+                cargo_id=206668785705,
+                ltsid="abc123...",
+                request_id="550e8400-e29b-41d4-a716-446655440000",
+            )
+            phone = result["cargo"]["proposalUser"]["contact"]["phoneItem1"]["phone"]
+        """
+        # Хешуємо LTSID для логування — не логуємо сирий токен сесії
+        ltsid_hash = hashlib.sha256(ltsid.encode()).hexdigest()[:8]
+        log = structlog.get_logger().bind(
+            request_id=request_id,
+            cargo_id=cargo_id,
+            ltsid_hash=ltsid_hash,
+        )
+
+        url = f"{self._base_url}{self.DETAIL_PATH_TEMPLATE.format(id=cargo_id)}"
+        headers = {
+            "Cookie": f"LTSID={ltsid}",
+            "Referer": f"https://lardi-trans.com/log/search/gruz/",
+            "Origin": "https://lardi-trans.com",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        }
+
+        log.info("lardi_detail_started", url=url)
+
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.get(
+                    url,
+                    params={"currentId": cargo_id},
+                    headers=headers,
+                )
+        except httpx.TimeoutException:
+            log.warning("lardi_detail_timeout", timeout_seconds=self._timeout)
+            raise LardiTimeoutError()
+
+        if response.status_code == 404:
+            log.info("lardi_detail_not_found", cargo_id=cargo_id)
+            raise LardiHTTPError(404)
+
+        if response.status_code == 401:
+            log.warning("lardi_detail_unauthorized")
+            raise LardiHTTPError(401, response.text)
+
+        if not response.is_success:
+            log.error(
+                "lardi_detail_http_error",
+                status_code=response.status_code,
+                body=response.text[:200],
+            )
+            raise LardiHTTPError(response.status_code, response.text)
+
+        log.info("lardi_detail_success", status_code=response.status_code)
         return response.json()

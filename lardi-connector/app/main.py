@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 import redis.asyncio as redis
 from fastapi import FastAPI
 
-from app.api import health, search
+from app.api import cargo, health, search
 from app.core.config import settings  # noqa: F401 — validates ENV on startup
 from app.queue.queue_manager import QueueManager
 from app.services.lardi_client import LardiClient
@@ -48,3 +48,4 @@ app = FastAPI(
 
 app.include_router(health.router)
 app.include_router(search.router)
+app.include_router(cargo.router)

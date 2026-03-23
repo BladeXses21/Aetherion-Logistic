@@ -17,6 +17,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.browser.lardi_login import fetch_ltsid
 from app.core.config import settings
+from app.scheduler.fuel_fetcher import fetch_and_store_fuel_price
 from app.session.ltsid_store import LTSID_REDIS_KEY, ltsid_store
 
 log = structlog.get_logger()
@@ -104,6 +105,14 @@ def create_scheduler(redis_client) -> AsyncIOScheduler:
         trigger=IntervalTrigger(seconds=settings.ltsid_proactive_check_interval_seconds),
         args=[redis_client],
         id="ltsid_proactive_refresh",
+        replace_existing=True,
+    )
+    # Story 3.5: Погодинне оновлення ціни палива
+    scheduler.add_job(
+        fetch_and_store_fuel_price,
+        trigger=IntervalTrigger(seconds=settings.fuel_cache_ttl_seconds),
+        args=[redis_client],
+        id="fuel_price_refresh",
         replace_existing=True,
     )
     return scheduler

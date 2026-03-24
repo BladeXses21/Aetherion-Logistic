@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health
+from app.api.admin import router as admin_router
 from app.api.chats import router as chats_router
 from app.core.config import settings
 from app.db.session import engine
@@ -64,3 +65,4 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(chats_router)
+app.include_router(admin_router)

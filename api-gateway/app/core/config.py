@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     admin_api_key: str = "changeme-replace-in-production"
     allowed_origins: str = "*"
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 
 settings = Settings()

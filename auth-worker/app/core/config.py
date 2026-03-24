@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     ltsid_proactive_check_interval_seconds: int = 1800  # 30 хвилин між перевірками TTL
     ltsid_refresh_threshold_seconds: int = 3600  # поріг TTL для proactive refresh (1 година)
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 
 settings = Settings()

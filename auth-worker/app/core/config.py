@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     ltsid_refresh_wait_seconds: int = 90
     refresh_circuit_breaker_threshold: int = 3
     refresh_circuit_breaker_pause_minutes: int = 10
-    fuel_price_url: str = ""
+    # WOG API — повертає ціни всіх видів палива; беремо ДП Євро5 для вантажівок
+    fuel_price_url: str = "https://api.wog.ua/fuel_stations"
     fuel_price_http_timeout_seconds: int = 5
     fuel_price_css_selector: str = ""
 

@@ -5,10 +5,14 @@ fuel_fetcher.py — Отримання та кешування поточної 
 щогодинним scheduler job. Зберігає ціну в Redis:
   aetherion:fuel:price:diesel  з TTL = FUEL_CACHE_TTL_SECONDS (default: 3600)
 
-Підтримує два формати відповіді від зовнішнього джерела:
-  - JSON: {"diesel": 52.3, "currency": "UAH"}  (пріоритетний формат)
-  - HTML: число знаходиться regex-пошуком у тексті сторінки
-    (FUEL_PRICE_CSS_SELECTOR використовується як підказка, де шукати)
+Джерело: WOG API (https://api.wog.ua/fuel_stations)
+Паливо для фур: ДП Євро5 (дизель Euro 5 — стандарт для сучасних вантажівок).
+
+Підтримує три формати відповіді:
+  1. WOG API JSON: {"data": {"fuel_filters": [{"name": "ДП", "brand": "Євро5",
+     "price": 8699, ...}]}}  — ціна в копійках, ділимо на 100.
+  2. Загальний JSON: {"diesel": 52.3, "currency": "UAH"}  (запасний формат)
+  3. HTML: число знаходиться regex-пошуком у тексті сторінки
 
 При будь-якій помилці (мережа, таймаут, парсинг) — існуючий кеш у Redis
 НЕ видаляється. Логуються WARNING, але сервіс продовжує роботу.
@@ -90,30 +94,51 @@ async def fetch_and_store_fuel_price(redis_client) -> None:
 
 def _parse_price(body: str, content_type: str) -> float | None:
     """
-    Витягує числове значення ціни з тіла HTTP-відповіді.
+    Витягує числове значення ціни дизелю ДП Євро5 з тіла HTTP-відповіді.
 
-    Підтримує два формати:
-      1. JSON: {"diesel": <число>, "currency": "UAH"}
-         Спрацьовує коли Content-Type містить "json".
-      2. HTML/текст: regex-пошук першого дійсного числа в тілі
-         (або в околицях позиції що відповідає FUEL_PRICE_CSS_SELECTOR).
+    Підтримує три формати (пріоритет зверху вниз):
+      1. WOG API JSON: {"data": {"fuel_filters": [{"name": "ДП", "brand": "Євро5",
+         "price": 8699}]}}
+         Ціна в API зберігається в копійках — ділимо на 100 для отримання грн.
+         ДП Євро5 = стандартний дизель Euro 5 для вантажівок (фур).
+      2. Загальний JSON: {"diesel": <число>}
+         Запасний формат для інших потенційних JSON-джерел.
+      3. HTML/текст: regex-пошук першого числа у форматі "52.3" або "52,3"
+         (якщо FUEL_PRICE_CSS_SELECTOR задано — шукаємо в його околицях).
 
     Args:
         body: Тіло HTTP-відповіді у вигляді рядка.
         content_type: Значення заголовку Content-Type відповіді.
 
     Returns:
-        Ціна як float або None якщо не вдалося розпарсити.
+        Ціна дизелю як float (наприклад, 86.99) або None якщо не вдалося розпарсити.
 
     Приклади:
+        # WOG API формат:
+        _parse_price('{"data": {"fuel_filters": [{"name": "ДП", "brand": "Євро5", "price": 8699}]}}',
+                     "application/json")  # → 86.99
+        # Загальний JSON:
         _parse_price('{"diesel": 52.3, "currency": "UAH"}', "application/json")  # → 52.3
+        # HTML:
         _parse_price('<span class="price">52,30</span>', "text/html")  # → 52.3
     """
     # JSON формат — основний, найнадійніший варіант
     if "json" in content_type:
         try:
             data = json.loads(body)
-            return float(data["diesel"])
+
+            # Формат 1: WOG API — data.fuel_filters[].{name, brand, price(копійки)}
+            fuel_filters = data.get("data", {}).get("fuel_filters", [])
+            for fuel in fuel_filters:
+                if fuel.get("name") == "ДП" and fuel.get("brand") == "Євро5":
+                    # Ціна в копійках (наприклад, 8699 = 86.99 грн)
+                    return round(float(fuel["price"]) / 100, 2)
+
+            # Формат 2: загальний {"diesel": 52.3} — запасний варіант
+            if "diesel" in data:
+                return float(data["diesel"])
+
+            return None
         except (KeyError, ValueError, TypeError, json.JSONDecodeError):
             return None
 

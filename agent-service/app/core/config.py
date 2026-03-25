@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     agent_busy_ttl_seconds: int = 60
     nominatim_user_agent: str = "Aetherion/2.0 (logistics-agent)"
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 
 settings = Settings()

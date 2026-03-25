@@ -137,6 +137,7 @@ def make_search_cargo_tool(
         from_location: str,
         to_location: str,
         body_type: str | None = None,
+        load_type: str | None = None,
         min_weight: float | None = None,
         max_weight: float | None = None,
         load_date_from: str | None = None,
@@ -152,6 +153,7 @@ def make_search_cargo_tool(
             from_location: Місто або країна відправлення (рядок, наприклад "Київ", "Харків", "Україна").
             to_location: Місто або країна призначення (рядок, наприклад "Варшава", "Польща", "Германія").
             body_type: Тип кузова українською (наприклад "тент", "реф", "бус"). Необов'язково.
+            load_type: Тип завантаження українською (наприклад "задня", "верхня", "бічна", "гідроборт"). Необов'язково.
             min_weight: Мінімальна вага вантажу в тоннах. Необов'язково.
             max_weight: Максимальна вага вантажу в тоннах. Необов'язково.
             load_date_from: Початкова дата завантаження у форматі ISO 8601 (YYYY-MM-DD). Необов'язково.
@@ -160,7 +162,7 @@ def make_search_cargo_tool(
         Returns:
             JSON рядок з топ-3 результатами за паливною маржею або пропозиціями при 0 результатах.
         """
-        from app.constants import BODY_TYPE_UA_TO_ID
+        from app.constants import BODY_TYPE_UA_TO_ID, LOAD_TYPE_UA_TO_CODE
 
         # Отримуємо поточну ціну палива
         fuel_price = await fuel_price_service.get_price(redis_client)
@@ -204,6 +206,19 @@ def make_search_cargo_tool(
                     raw_value=body_type,
                 )
 
+        # Розв'язуємо тип завантаження (задня, верхня, бічна тощо)
+        load_type_codes: list[str] | None = None
+        if load_type:
+            resolved_code = LOAD_TYPE_UA_TO_CODE.get(load_type.lower().strip())
+            if resolved_code:
+                load_type_codes = [resolved_code]
+            else:
+                log.warning(
+                    "intent_filter_cast_failed",
+                    field="loadType",
+                    raw_value=load_type,
+                )
+
         # Формуємо запит до lardi-connector
         search_request: dict[str, Any] = {
             "directionFrom": from_direction,
@@ -212,6 +227,8 @@ def make_search_cargo_tool(
         }
         if body_type_ids:
             search_request["bodyTypeIds"] = body_type_ids
+        if load_type_codes:
+            search_request["loadTypes"] = load_type_codes
         if min_weight is not None:
             search_request["mass1"] = min_weight
         if max_weight is not None:

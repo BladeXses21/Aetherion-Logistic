@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # Затримка перед повторним запитом після успішного refresh LTSID (мілісекунди)
     ltsid_retry_delay_ms: int = 200
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    model_config = {"env_file": ".env", "case_sensitive": False, "extra": "ignore"}
 
 
 settings = Settings()

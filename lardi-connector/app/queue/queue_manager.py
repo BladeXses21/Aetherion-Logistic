@@ -113,24 +113,30 @@ class QueueManager:
                 coro_factory=lambda: httpx_client.post("/search", json=payload),
             )
         """
-        # Перевіряємо доступність Redis та отримуємо поточну глибину черги
-        try:
-            queue_depth = await self._redis.llen(QUEUE_KEY)
-            await self._redis.rpush(QUEUE_KEY, request_id)
-        except aioredis.RedisError as exc:
-            logger.error("queue_redis_unavailable_on_enqueue", request_id=request_id, exc_info=True)
-            raise QueueUnavailableError("Redis is unavailable") from exc
-
+        # КРИТИЧНО: спочатку реєструємо в _pending, потім RPUSH в Redis.
+        # Причина: після await rpush() event loop може негайно переключитись
+        # на consumer task (BLPOP повернеться одразу після RPUSH). Якщо _pending
+        # ще не заповнений — consumer побачить request_id якого "немає" і викине
+        # запит. Тому _pending must бути заповнений ДО RPUSH.
         enqueued_at = time.monotonic()
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
         self._pending[request_id] = (coro_factory, future, enqueued_at)
 
+        try:
+            queue_depth = await self._redis.llen(QUEUE_KEY)
+            await self._redis.rpush(QUEUE_KEY, request_id)
+        except aioredis.RedisError as exc:
+            # Прибираємо з _pending якщо RPUSH не вдався
+            self._pending.pop(request_id, None)
+            logger.error("queue_redis_unavailable_on_enqueue", request_id=request_id, exc_info=True)
+            raise QueueUnavailableError("Redis is unavailable") from exc
+
         logger.info(
             "lardi_request_queued",
             request_id=request_id,
             queue_depth=queue_depth + 1,
-            wait_ms=0,  # оновлюється консьюмером при старті виконання
+            wait_ms=0,
         )
 
         return await future

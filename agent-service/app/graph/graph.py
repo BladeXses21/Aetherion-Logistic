@@ -82,11 +82,11 @@ def build_graph(
     tools = [search_tool, detail_tool]
 
     # Компілюємо ReAct агент (create_react_agent з LangGraph prebuilt)
-    # Системний промпт передається через state_modifier
+    # Системний промпт передається через prompt (в LangGraph 1.1.0 state_modifier → prompt)
     graph = create_react_agent(
         model=llm,
         tools=tools,
-        state_modifier=SYSTEM_PROMPT,
+        prompt=SYSTEM_PROMPT,
     )
 
     return graph

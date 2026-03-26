@@ -81,6 +81,10 @@ class CargoSearchRequest(BaseModel):
         cargoBodyTypeProperties: Модифікатори кузова, наприклад "Jumbo", "Mega", "Doubledeck".
         onlyShippers: Якщо True — лише від прямих власників вантажу (без посередників).
         photos: Якщо True — лише оголошення з фотографіями.
+        onlyCarrier: Якщо True — лише від перевізників.
+        onlyExpedition: Якщо True — лише від експедиторів.
+        companyName: Пошук вантажів від конкретної компанії (рядок з назвою).
+        companyRefId: ID компанії в системі Lardi для точного пошуку.
     """
 
     directionFrom: Direction
@@ -127,6 +131,12 @@ class CargoSearchRequest(BaseModel):
     # --- Додаткові бізнес-фільтри ---
     onlyShippers: bool | None = None
     photos: bool | None = None
+    # --- Фільтри ролі контрагента ---
+    onlyCarrier: bool | None = None
+    onlyExpedition: bool | None = None
+    # --- Пошук по конкретній компанії ---
+    companyName: str | None = None
+    companyRefId: int | None = None
 
 
 class WaypointInfo(BaseModel):

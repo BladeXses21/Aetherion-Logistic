@@ -157,6 +157,9 @@ def make_search_cargo_tool(
         body_modifiers: list[str] | None = None,
         only_shippers: bool | None = None,
         with_photos: bool | None = None,
+        only_carrier: bool | None = None,
+        only_expedition: bool | None = None,
+        company_name: str | None = None,
     ) -> str:
         """
         Шукає вантажі на Lardi-Trans та ранжує за паливною маржею.
@@ -199,6 +202,10 @@ def make_search_cargo_tool(
             only_shippers: True — лише від прямих власників вантажу (без посередників/брокерів).
                 False або None — без фільтру.
             with_photos: True — лише оголошення з фотографіями вантажу. None — без фільтру.
+            only_carrier: True — лише від перевізників. None — без фільтру.
+            only_expedition: True — лише від експедиторів. None — без фільтру.
+            company_name: Назва компанії для пошуку вантажів від конкретного відправника.
+                Приклад: "АТБ", "Нова Пошта". None — без фільтру.
 
         Returns:
             JSON рядок з топ-3 результатами за паливною маржею або пропозиціями при 0 результатах.
@@ -419,6 +426,14 @@ def make_search_cargo_tool(
             search_request["onlyShippers"] = only_shippers
         if with_photos is not None:
             search_request["photos"] = with_photos
+        # Ролі контрагента: перевізник / експедитор
+        if only_carrier is not None:
+            search_request["onlyCarrier"] = only_carrier
+        if only_expedition is not None:
+            search_request["onlyExpedition"] = only_expedition
+        # Пошук по конкретній компанії
+        if company_name:
+            search_request["companyName"] = company_name
 
         # Викликаємо lardi-connector
         try:

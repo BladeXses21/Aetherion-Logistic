@@ -316,6 +316,12 @@ def _build_lardi_payload(
             # --- Бізнес-фільтри ---
             "onlyShippers": payload.onlyShippers,
             "photos": payload.photos,
+            # --- Ролі контрагента ---
+            "onlyCarrier": payload.onlyCarrier,
+            "onlyExpedition": payload.onlyExpedition,
+            # --- Пошук по компанії ---
+            "companyName": payload.companyName,
+            "companyRefId": payload.companyRefId,
         },
     }
 

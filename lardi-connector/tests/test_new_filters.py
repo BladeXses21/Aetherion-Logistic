@@ -302,10 +302,86 @@ async def test_photos_none_when_not_provided(search_client):
     assert lardi_filter.get("photos") is None
 
 
+# --- Тести: ролі контрагента (onlyCarrier, onlyExpedition) ---
+
+async def test_only_carrier_passed_to_lardi(search_client):
+    """onlyCarrier=True (лише від перевізників) передається в Lardi filter."""
+    ac, _, _, mock_lardi = search_client
+
+    body = {**VALID_REQUEST_BODY, "onlyCarrier": True}
+    response = await ac.post("/search", json=body)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter["onlyCarrier"] is True
+
+
+async def test_only_expedition_passed_to_lardi(search_client):
+    """onlyExpedition=True (лише від експедиторів) передається в Lardi filter."""
+    ac, _, _, mock_lardi = search_client
+
+    body = {**VALID_REQUEST_BODY, "onlyExpedition": True}
+    response = await ac.post("/search", json=body)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter["onlyExpedition"] is True
+
+
+async def test_only_carrier_none_when_not_provided(search_client):
+    """onlyCarrier = None якщо не вказано в запиті."""
+    ac, _, _, mock_lardi = search_client
+
+    response = await ac.post("/search", json=VALID_REQUEST_BODY)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter.get("onlyCarrier") is None
+    assert lardi_filter.get("onlyExpedition") is None
+
+
+# --- Тести: пошук по компанії ---
+
+async def test_company_name_passed_to_lardi(search_client):
+    """companyName (назва компанії) передається в Lardi filter."""
+    ac, _, _, mock_lardi = search_client
+
+    body = {**VALID_REQUEST_BODY, "companyName": "АТБ"}
+    response = await ac.post("/search", json=body)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter["companyName"] == "АТБ"
+
+
+async def test_company_ref_id_passed_to_lardi(search_client):
+    """companyRefId (ID компанії) передається в Lardi filter."""
+    ac, _, _, mock_lardi = search_client
+
+    body = {**VALID_REQUEST_BODY, "companyRefId": 13815098368}
+    response = await ac.post("/search", json=body)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter["companyRefId"] == 13815098368
+
+
+async def test_company_name_none_when_not_provided(search_client):
+    """companyName та companyRefId = None якщо не вказані."""
+    ac, _, _, mock_lardi = search_client
+
+    response = await ac.post("/search", json=VALID_REQUEST_BODY)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter.get("companyName") is None
+    assert lardi_filter.get("companyRefId") is None
+
+
 # --- Тести: комбінований запит ---
 
 async def test_all_new_filters_combined(search_client):
-    """Всі нові фільтри Пріоритету 1 та 2 можна передати разом."""
+    """Всі нові фільтри Пріоритету 1, 2 та 3 можна передати разом."""
     ac, _, _, mock_lardi = search_client
 
     body = {
@@ -320,6 +396,9 @@ async def test_all_new_filters_combined(search_client):
         "cargoBodyTypeProperties": ["Mega"],
         "onlyShippers": True,
         "photos": True,
+        "onlyCarrier": False,
+        "onlyExpedition": False,
+        "companyName": "АТБ",
     }
     response = await ac.post("/search", json=body)
 
@@ -335,3 +414,6 @@ async def test_all_new_filters_combined(search_client):
     assert f["cargoBodyTypeProperties"] == ["Mega"]
     assert f["onlyShippers"] is True
     assert f["photos"] is True
+    assert f["onlyCarrier"] is False
+    assert f["onlyExpedition"] is False
+    assert f["companyName"] == "АТБ"

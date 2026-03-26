@@ -313,6 +313,9 @@ def _build_lardi_payload(
             "excludeDocuments": payload.excludeDocuments,
             # --- Модифікатори типу кузова ---
             "cargoBodyTypeProperties": payload.cargoBodyTypeProperties,
+            # --- Бізнес-фільтри ---
+            "onlyShippers": payload.onlyShippers,
+            "photos": payload.photos,
         },
     }
 

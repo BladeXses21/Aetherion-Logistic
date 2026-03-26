@@ -155,6 +155,8 @@ def make_search_cargo_tool(
         required_documents: list[str] | None = None,
         excluded_documents: list[str] | None = None,
         body_modifiers: list[str] | None = None,
+        only_shippers: bool | None = None,
+        with_photos: bool | None = None,
     ) -> str:
         """
         Шукає вантажі на Lardi-Trans та ранжує за паливною маржею.
@@ -194,6 +196,9 @@ def make_search_cargo_tool(
             excluded_documents: Документи що не потрібні (ті ж коди).
             body_modifiers: Модифікатори кузова: "jumbo", "mega", "doubledeck".
                 Приклад: ["jumbo"] — тільки Jumbo тент.
+            only_shippers: True — лише від прямих власників вантажу (без посередників/брокерів).
+                False або None — без фільтру.
+            with_photos: True — лише оголошення з фотографіями вантажу. None — без фільтру.
 
         Returns:
             JSON рядок з топ-3 результатами за паливною маржею або пропозиціями при 0 результатах.
@@ -409,6 +414,11 @@ def make_search_cargo_tool(
         # Модифікатори кузова
         if resolved_modifiers:
             search_request["cargoBodyTypeProperties"] = resolved_modifiers
+        # Бізнес-фільтри: тільки від власника вантажу, тільки з фото
+        if only_shippers is not None:
+            search_request["onlyShippers"] = only_shippers
+        if with_photos is not None:
+            search_request["photos"] = with_photos
 
         # Викликаємо lardi-connector
         try:

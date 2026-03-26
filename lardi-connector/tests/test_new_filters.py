@@ -240,10 +240,72 @@ async def test_cargo_body_type_properties_none_when_not_provided(search_client):
     assert lardi_filter.get("cargoBodyTypeProperties") is None
 
 
+# --- Тести: тільки від власника вантажу (onlyShippers) ---
+
+async def test_only_shippers_true_passed_to_lardi(search_client):
+    """onlyShippers=True (лише від власника) передається в Lardi filter."""
+    ac, _, _, mock_lardi = search_client
+
+    body = {**VALID_REQUEST_BODY, "onlyShippers": True}
+    response = await ac.post("/search", json=body)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter["onlyShippers"] is True
+
+
+async def test_only_shippers_false_passed_to_lardi(search_client):
+    """onlyShippers=False (без обмеження власника) передається в Lardi filter."""
+    ac, _, _, mock_lardi = search_client
+
+    body = {**VALID_REQUEST_BODY, "onlyShippers": False}
+    response = await ac.post("/search", json=body)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter["onlyShippers"] is False
+
+
+async def test_only_shippers_none_when_not_provided(search_client):
+    """onlyShippers = None якщо не вказано в запиті."""
+    ac, _, _, mock_lardi = search_client
+
+    response = await ac.post("/search", json=VALID_REQUEST_BODY)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter.get("onlyShippers") is None
+
+
+# --- Тести: тільки з фото (photos) ---
+
+async def test_photos_true_passed_to_lardi(search_client):
+    """photos=True (лише оголошення з фото) передається в Lardi filter."""
+    ac, _, _, mock_lardi = search_client
+
+    body = {**VALID_REQUEST_BODY, "photos": True}
+    response = await ac.post("/search", json=body)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter["photos"] is True
+
+
+async def test_photos_none_when_not_provided(search_client):
+    """photos = None якщо не вказано в запиті."""
+    ac, _, _, mock_lardi = search_client
+
+    response = await ac.post("/search", json=VALID_REQUEST_BODY)
+
+    assert response.status_code == 200
+    lardi_filter = _get_lardi_filter(mock_lardi)
+    assert lardi_filter.get("photos") is None
+
+
 # --- Тести: комбінований запит ---
 
 async def test_all_new_filters_combined(search_client):
-    """Всі нові фільтри Пріоритету 1 можна передати разом."""
+    """Всі нові фільтри Пріоритету 1 та 2 можна передати разом."""
     ac, _, _, mock_lardi = search_client
 
     body = {
@@ -256,6 +318,8 @@ async def test_all_new_filters_combined(search_client):
         "includeDocuments": ["cmr"],
         "excludeDocuments": ["tir"],
         "cargoBodyTypeProperties": ["Mega"],
+        "onlyShippers": True,
+        "photos": True,
     }
     response = await ac.post("/search", json=body)
 
@@ -269,3 +333,5 @@ async def test_all_new_filters_combined(search_client):
     assert f["includeDocuments"] == ["cmr"]
     assert f["excludeDocuments"] == ["tir"]
     assert f["cargoBodyTypeProperties"] == ["Mega"]
+    assert f["onlyShippers"] is True
+    assert f["photos"] is True

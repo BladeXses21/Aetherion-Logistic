@@ -79,6 +79,8 @@ class CargoSearchRequest(BaseModel):
         includeDocuments: Документи обов'язкові: "cmr", "t1", "tir", "ekmt", "frc", "cmrInsurance".
         excludeDocuments: Документи не потрібні (ті ж коди).
         cargoBodyTypeProperties: Модифікатори кузова, наприклад "Jumbo", "Mega", "Doubledeck".
+        onlyShippers: Якщо True — лише від прямих власників вантажу (без посередників).
+        photos: Якщо True — лише оголошення з фотографіями.
     """
 
     directionFrom: Direction
@@ -122,6 +124,9 @@ class CargoSearchRequest(BaseModel):
     excludeDocuments: list[str] | None = None
     # --- Модифікатори типу кузова (Jumbo, Mega, Doubledeck) ---
     cargoBodyTypeProperties: list[str] | None = None
+    # --- Додаткові бізнес-фільтри ---
+    onlyShippers: bool | None = None
+    photos: bool | None = None
 
 
 class WaypointInfo(BaseModel):

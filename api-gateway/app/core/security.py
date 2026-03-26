@@ -2,37 +2,37 @@
 security.py — Утиліти для JWT автентифікації та хешування паролів (Epic 9.1).
 
 Містить:
-  - hash_password / verify_password: bcrypt через passlib
+  - hash_password / verify_password: bcrypt напряму (без passlib wrapper)
   - create_access_token: видача JWT токена після успішного логіну
   - decode_access_token: перевірка та декодування JWT
 
 Алгоритм: HS256 (HMAC-SHA256) — стандартний для stateless сесій.
 Payload JWT: {"sub": "<user_id_str>", "email": "<email>", "role": "<role>", "exp": <timestamp>}
+
+Примітка: використовуємо bcrypt напряму (не через passlib) через несумісність
+passlib 1.7.4 з bcrypt >= 4.x (AttributeError: __about__.__version__).
 """
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
-
-# Контекст bcrypt для хешування паролів
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def hash_password(plain_password: str) -> str:
     """
-    Хешує пароль через bcrypt.
+    Хешує пароль через bcrypt (cost factor 12).
 
     Args:
         plain_password: Відкритий текст пароля.
 
     Returns:
-        bcrypt хеш для збереження у БД.
+        bcrypt хеш (рядок) для збереження у БД.
     """
-    return _pwd_context.hash(plain_password)
+    return bcrypt.hashpw(plain_password.encode(), bcrypt.gensalt(12)).decode()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -46,7 +46,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True якщо пароль відповідає хешу, False — інакше.
     """
-    return _pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+    except Exception:
+        return False
 
 
 def create_access_token(user_id: str, email: str, role: str) -> str:

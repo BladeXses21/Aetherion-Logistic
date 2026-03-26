@@ -15,6 +15,9 @@ export const useAuthStore = defineStore('auth', () => {
   /** JWT access token (зберігається в localStorage для persistence) */
   const token = ref<string | null>(localStorage.getItem('aetherion_token'))
 
+  /** Admin API Key для запитів до /api/v1/admin/* (зберігається в localStorage) */
+  const adminKey = ref<string>(localStorage.getItem('aetherion_admin_key') ?? '')
+
   /** Профіль поточного користувача */
   const user = ref<UserProfile | null>(null)
 
@@ -48,6 +51,24 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /**
+   * Зберігає Admin API Key після успішного введення.
+   *
+   * @param key - Admin API Key з поля вводу
+   */
+  function setAdminKey(key: string): void {
+    adminKey.value = key
+    localStorage.setItem('aetherion_admin_key', key)
+  }
+
+  /**
+   * Очищає Admin API Key (наприклад при 401/403 від admin API).
+   */
+  function clearAdminKey(): void {
+    adminKey.value = ''
+    localStorage.removeItem('aetherion_admin_key')
+  }
+
+  /**
    * Виход з системи — очищає токен та профіль.
    */
   function logout(): void {
@@ -72,6 +93,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     token,
+    adminKey,
     user,
     loading,
     isAuthenticated,
@@ -79,5 +101,7 @@ export const useAuthStore = defineStore('auth', () => {
     login,
     logout,
     fetchMe,
+    setAdminKey,
+    clearAdminKey,
   }
 })

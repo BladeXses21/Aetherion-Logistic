@@ -38,19 +38,43 @@
           <SettingsIcon class="w-4 h-4" />
         </Button>
 
-        <!-- Профіль / вихід -->
-        <Button
-          variant="ghost"
-          size="sm"
-          @click="handleLogout"
-          class="text-muted-foreground hover:text-foreground"
-        >
-          <Avatar class="w-6 h-6">
-            <AvatarFallback class="text-xs bg-secondary">
-              {{ userInitial }}
-            </AvatarFallback>
-          </Avatar>
-        </Button>
+        <!-- Профіль / вихід — dropdown меню -->
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger as-child>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="text-muted-foreground hover:text-foreground"
+            >
+              <Avatar class="w-6 h-6">
+                <AvatarFallback class="text-xs bg-secondary">
+                  {{ userInitial }}
+                </AvatarFallback>
+              </Avatar>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent
+              align="end"
+              :side-offset="6"
+              class="z-50 min-w-44 rounded-lg border border-border bg-card shadow-md p-1 text-sm"
+            >
+              <!-- Email поточного користувача -->
+              <div class="px-2 py-1.5 text-xs text-muted-foreground truncate max-w-48">
+                {{ auth.user?.email }}
+              </div>
+              <DropdownMenuSeparator class="my-1 h-px bg-border/50" />
+              <!-- Вихід -->
+              <DropdownMenuItem
+                class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-destructive hover:bg-destructive/10 outline-none"
+                @click="handleLogout"
+              >
+                <LogOutIcon class="w-3.5 h-3.5" />
+                Вийти
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
       </div>
     </header>
 
@@ -190,7 +214,16 @@ import {
   TruckIcon,
   SettingsIcon,
   AlertCircleIcon,
+  LogOutIcon,
 } from 'lucide-vue-next'
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuRoot,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from 'reka-ui'
 import AssistantMessage from '@/components/chat/AssistantMessage.vue'
 
 const router = useRouter()

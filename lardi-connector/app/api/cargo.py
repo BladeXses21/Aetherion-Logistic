@@ -201,6 +201,7 @@ def _parse_detail_response(raw: dict) -> CargoDetailResponse:
         route_from=route_from,
         route_to=route_to,
         loading_date=cargo.get("dateFrom"),
+        loading_date_to=cargo.get("dateTo"),  # кінцева дата актуальності вантажу
         cargo_name=cargo.get("gruzName"),
         cargo_mass_kg=cargo_mass_kg,
         distance_m=distance_m,

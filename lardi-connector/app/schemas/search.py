@@ -165,7 +165,8 @@ class CargoItem(BaseModel):
         body_type: Тип кузова транспортного засобу (рядок, наприклад "Тент").
         route_from: Місто відправлення (з першого елемента waypointListSource).
         route_to: Місто призначення (з першого елемента waypointListTarget).
-        loading_date: Дата завантаження (рядок з поля dateFrom).
+        loading_date: Початкова дата завантаження (рядок з поля dateFrom).
+        loading_date_to: Кінцева дата завантаження — до якої вантаж актуальний (поле dateTo).
         distance_m: Відстань маршруту в метрах (сирий integer від Lardi).
         distance_km: Відстань маршруту в кілометрах (distance_m / 1000, округлення до 0.1).
         payment: Рядок із сумою оплати у форматі Lardi (наприклад, "40 000 грн.").
@@ -180,6 +181,7 @@ class CargoItem(BaseModel):
     route_from: str | None = None
     route_to: str | None = None
     loading_date: str | None = None
+    loading_date_to: str | None = None
     distance_m: int | None = None
     distance_km: float | None = None
     payment: str | None = None

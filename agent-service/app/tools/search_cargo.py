@@ -5,11 +5,12 @@ search_cargo.py — LangChain інструмент пошуку вантажів
   1. Розв'язання назв міст/країн у DirectionFilter (geo_resolver)
   2. Виклик lardi-connector POST /search
   3. Розрахунок паливної маржі для кожного результату
-  4. Ранжування за маржею (спадання), відбір топ-3
-  5. Генерація пропозицій при 0 результатах (Story 4.5)
+  4. Ранжування за маржею (спадання), відбір топ-N (визначається параметром limit)
+  5. Фільтрація вже показаних вантажів (exclude_ids) для пагінації
+  6. Генерація пропозицій при 0 результатах (Story 4.5)
 
 Вхідні дані: природномовні параметри від LLM (назви міст як рядки).
-Вихідні дані: JSON рядок з топ-3 результатами обгорнутими в [EXTERNAL DATA].
+Вихідні дані: JSON рядок з результатами обгорнутими в [EXTERNAL DATA].
 
 Все що стосується LTSID залишається в lardi-connector — інструмент не має доступу до сесійних даних.
 """
@@ -160,6 +161,8 @@ def make_search_cargo_tool(
         only_carrier: bool | None = None,
         only_expedition: bool | None = None,
         company_name: str | None = None,
+        limit: int = 3,
+        exclude_ids: list[int] | None = None,
     ) -> str:
         """
         Шукає вантажі на Lardi-Trans та ранжує за паливною маржею.
@@ -206,9 +209,18 @@ def make_search_cargo_tool(
             only_expedition: True — лише від експедиторів. None — без фільтру.
             company_name: Назва компанії для пошуку вантажів від конкретного відправника.
                 Приклад: "АТБ", "Нова Пошта". None — без фільтру.
+            limit: Кількість вантажів що потрібно повернути (від 1 до 25). За замовчуванням 3.
+                Якщо користувач просить "ще вантажі", "більше результатів", "дай 10" — збільш значення.
+            exclude_ids: Список ID вантажів що вже були показані користувачу — вони будуть
+                виключені з нових результатів. Передавай всі ID з попередніх відповідей
+                при повторному пошуку ("ще вантажі", "покажи більше").
+                Приклад: [204333882919, 282377239780, 206668785705]
 
         Returns:
-            JSON рядок з топ-3 результатами за паливною маржею або пропозиціями при 0 результатах.
+            JSON рядок зі списком вантажів (до limit штук) за паливною маржею
+            або пропозиціями по розширенню фільтрів при 0 результатах.
+            Кожен вантаж містить: id, маршрут, тип кузова, вагу, відстань,
+            loading_date (початок), loading_date_to (кінцевий термін), оплату та маржу.
         """
         from app.constants import (
             BODY_TYPE_UA_TO_ID,
@@ -366,11 +378,19 @@ def make_search_cargo_tool(
                     )
             resolved_modifiers = resolved_modifiers or None
 
+        # Нормалізуємо limit (від 1 до 25)
+        safe_limit = max(1, min(25, limit))
+
+        # Розмір вибірки з Lardi — достатньо великий щоб після виключення
+        # вже показаних вантажів (exclude_ids) залишилось safe_limit нових
+        exclude_count = len(exclude_ids) if exclude_ids else 0
+        fetch_size = max(50, safe_limit * 3 + exclude_count)
+
         # Формуємо запит до lardi-connector
         search_request: dict[str, Any] = {
             "directionFrom": from_direction,
             "directionTo": to_direction,
-            "size": 50,  # отримуємо більше для кращого ранжування
+            "size": fetch_size,
             "paymentCurrencyId": payment_currency_id,
         }
         if resolved_pvt:
@@ -463,9 +483,17 @@ def make_search_cargo_tool(
                 ensure_ascii=False,
             )
 
+        # Набір ID що вже показувались — для пагінації ("покажи ще")
+        excluded_set: set[int] = set(exclude_ids) if exclude_ids else set()
+
         # Розраховуємо маржу для кожного результату
         enriched: list[dict] = []
         for item in proposals:
+            # Пропускаємо вже показані вантажі (пагінація)
+            cargo_id = item.get("id")
+            if cargo_id in excluded_set:
+                continue
+
             # Перевіряємо валідність оплати (тільки UAH = currency_id 4)
             payment_value: float | None = None
             if item.get("payment_currency_id") == 4:
@@ -481,18 +509,23 @@ def make_search_cargo_tool(
                 overhead_coeff=overhead_coeff,
             )
 
-            # Тільки trimmed поля для LLM контексту (NFR12 — мінімізація даних)
+            # Trimmed поля для LLM контексту (NFR12 — мінімізація даних).
+            # payment — форматований рядок від Lardi ("40 000 грн.", "Запит вартості" тощо)
+            # loading_date_to — дата до якої вантаж активний (кінець прийому заявок)
             enriched.append(
                 {
-                    "id": item.get("id"),
+                    "id": cargo_id,
                     "route_from": item.get("route_from"),
                     "route_to": item.get("route_to"),
                     "body_type": item.get("body_type"),
                     "distance_km": item.get("distance_km"),
                     "loading_date": item.get("loading_date"),
+                    "loading_date_to": item.get("loading_date_to"),
                     "cargo_name": item.get("cargo_name"),
                     "cargo_mass": item.get("cargo_mass"),
+                    "payment": item.get("payment"),
                     "payment_value": payment_value,
+                    "payment_currency_id": item.get("payment_currency_id"),
                     "estimated_fuel_margin": margin,
                 }
             )
@@ -505,26 +538,27 @@ def make_search_cargo_tool(
         )
         without_margin = [r for r in enriched if r["estimated_fuel_margin"] is None]
 
-        # Відбираємо топ-3 (або більше якщо перші 3 без маржі — Story 4.2)
-        ranked = with_margin[:3]
-        if len(ranked) < 3:
-            extra_needed = 3 - len(ranked)
+        # Відбираємо топ-N (safe_limit) — спочатку ті що мають маржу
+        ranked = with_margin[:safe_limit]
+        if len(ranked) < safe_limit:
+            extra_needed = safe_limit - len(ranked)
             ranked += without_margin[:extra_needed]
 
-        # Якщо взагалі немає маржі — беремо топ-3 без неї
+        # Якщо взагалі немає маржі — беремо топ-N без неї
         if not ranked:
-            ranked = enriched[:3]
+            ranked = enriched[:safe_limit]
 
         result = {
             "results": ranked,
             "total_found": total_size,
+            "shown_count": len(ranked),
             "capped": capped,
             "suggestion": None,
         }
 
         if capped:
             result["capped_note"] = (
-                "Показую топ-3 з 500+ результатів — результати обрізані. "
+                f"Показую топ-{safe_limit} з 500+ результатів — результати обрізані. "
                 "Звуж фільтри для точнішого пошуку."
             )
 

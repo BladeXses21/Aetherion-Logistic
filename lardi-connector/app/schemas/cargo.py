@@ -41,6 +41,7 @@ class CargoDetailResponse(BaseModel):
     route_from: str | None = None
     route_to: str | None = None
     loading_date: str | None = None
+    loading_date_to: str | None = None  # кінцева дата актуальності (dateTo)
     cargo_name: str | None = None
     cargo_mass_kg: float | None = None
     distance_m: int | None = None

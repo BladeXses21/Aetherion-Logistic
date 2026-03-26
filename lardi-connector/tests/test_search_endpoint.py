@@ -370,6 +370,52 @@ async def test_search_load_types_tail_lift_and_tent_off_accepted(search_client):
     assert response.status_code == 200
 
 
+async def test_search_paginator_null_does_not_crash(search_client, mock_lardi):
+    """
+    Якщо Lardi повертає 'paginator': null — ендпоінт не крашиться (bugfix).
+
+    Відтворює помилку:
+        AttributeError: 'NoneType' object has no attribute 'get'
+    яка виникала коли result['paginator'] == None (null у JSON).
+    """
+    ac, _, _, mock_lardi = search_client
+
+    # Симулюємо реальну відповідь Lardi де paginator = null
+    null_paginator_response = {
+        "result": {
+            "proposals": FAKE_LARDI_RESPONSE["result"]["proposals"],
+            "paginator": None,  # ← баг: .get("paginator", {}) поверне None, а не {}
+        }
+    }
+    mock_lardi.search = AsyncMock(return_value=null_paginator_response)
+
+    response = await ac.post("/search", json=VALID_REQUEST_BODY)
+
+    # Не повинно бути 500 Internal Server Error
+    assert response.status_code == 200
+    data = response.json()
+    # total_size має бути 0 (fallback) коли paginator = null
+    assert data["total_size"] == 0
+    assert data["capped"] is False
+
+
+async def test_search_result_null_does_not_crash(search_client, mock_lardi):
+    """
+    Якщо Lardi повертає 'result': null — ендпоінт повертає порожній список без краша.
+    """
+    ac, _, _, mock_lardi = search_client
+
+    null_result_response = {"result": None}
+    mock_lardi.search = AsyncMock(return_value=null_result_response)
+
+    response = await ac.post("/search", json=VALID_REQUEST_BODY)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["proposals"] == []
+    assert data["total_size"] == 0
+
+
 async def test_search_request_id_generated_per_request(search_client, mock_queue):
     """Кожен запит отримує унікальний request_id (перевіряємо що enqueue викликається)."""
     ac, _, mock_queue, _ = search_client

@@ -40,7 +40,7 @@ AGENT_BUSY_KEY = "aetherion:agent:busy"
 # Статусні повідомлення що відправляються при виклику інструментів
 _TOOL_STATUS_MESSAGES: dict[str, str] = {
     "search_cargo": "📦 Шукаємо вантажі в Lardi...",
-    "get_cargo_detail": "📞 Отримуємо деталі вантажу...",
+    "get_cargo_contacts": "📞 Отримуємо контактні дані вантажів...",
 }
 
 
@@ -108,15 +108,28 @@ async def _stream_agent(request: StreamRequest, app_state):
                 # Якщо пошук — додаємо повідомлення про розрахунок маржі
                 if tool_name == "search_cargo":
                     yield f"data: {json.dumps({'type': 'status', 'message': '💰 Розраховуємо паливну маржу...'}, ensure_ascii=False)}\n\n"
+                elif tool_name == "get_cargo_contacts":
+                    yield f"data: {json.dumps({'type': 'status', 'message': '🔍 Завантажуємо деталі вантажів...'}, ensure_ascii=False)}\n\n"
 
             # Стрімінг токенів відповіді LLM
             elif event_type == "on_chat_model_stream":
                 chunk = event_data.get("chunk")
                 if chunk and hasattr(chunk, "content") and chunk.content:
                     content = chunk.content
-                    if isinstance(content, str) and content:
-                        full_response += content
-                        yield f"data: {json.dumps({'type': 'token', 'content': content}, ensure_ascii=False)}\n\n"
+                    if isinstance(content, str):
+                        # Звичайний рядок — більшість моделей
+                        if content:
+                            full_response += content
+                            yield f"data: {json.dumps({'type': 'token', 'content': content}, ensure_ascii=False)}\n\n"
+                    elif isinstance(content, list):
+                        # Деякі моделі (Claude, Gemini через OpenRouter) повертають
+                        # content як список блоків: [{"type": "text", "text": "..."}]
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text = block.get("text", "")
+                                if text:
+                                    full_response += text
+                                    yield f"data: {json.dumps({'type': 'token', 'content': text}, ensure_ascii=False)}\n\n"
 
         # Завершення стріму
         yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"

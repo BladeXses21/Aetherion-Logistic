@@ -144,6 +144,9 @@ class GeoResolver:
             text(
                 "SELECT lardi_town_id, name_ua FROM ua_cities "
                 "WHERE LOWER(name_ua) = LOWER(:name) "
+                # При дублікатах (однакова назва в різних областях) беремо мінімальний ID:
+                # обласні центри мають менші ID (вони старіші в базі Lardi).
+                "ORDER BY lardi_town_id ASC NULLS LAST "
                 "LIMIT 1"
             ),
             {"name": name},
@@ -174,7 +177,9 @@ class GeoResolver:
                     "word_similarity(:name, name_ua) AS sim "
                     "FROM ua_cities "
                     "WHERE word_similarity(:name, name_ua) >= :threshold "
-                    "ORDER BY sim DESC "
+                    # При однаковій схожості — беремо мінімальний lardi_town_id
+                    # (обласні центри мають менші ID, що відповідає очікуванню користувача)
+                    "ORDER BY sim DESC, lardi_town_id ASC NULLS LAST "
                     "LIMIT 1"
                 ),
                 {"name": name, "threshold": TRGM_THRESHOLD},

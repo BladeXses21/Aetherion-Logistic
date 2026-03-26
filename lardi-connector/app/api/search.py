@@ -343,9 +343,10 @@ def _parse_response(raw: dict, page: int) -> CargoSearchResponse:
     Returns:
         CargoSearchResponse з переліком вантажів та метаданими.
     """
-    result = raw.get("result", {})
-    proposals_raw = result.get("proposals", [])
-    paginator = result.get("paginator", {})
+    result = raw.get("result") or {}
+    proposals_raw = result.get("proposals") or []
+    # paginator може бути None якщо Lardi повертає "paginator": null
+    paginator = result.get("paginator") or {}
     total_size = paginator.get("totalSize", 0)
 
     items = [_parse_cargo_item(p) for p in proposals_raw]
@@ -403,6 +404,7 @@ def _parse_cargo_item(p: dict) -> CargoItem:
         route_from=route_from,
         route_to=route_to,
         loading_date=p.get("dateFrom"),
+        loading_date_to=p.get("dateTo"),  # кінцева дата актуальності вантажу
         distance_m=distance_m,
         distance_km=distance_km,
         payment=p.get("payment"),

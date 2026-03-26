@@ -309,6 +309,9 @@ def _build_lardi_payload(
             # --- Мінімальна сума оплати ---
             "paymentValue": payload.paymentValue,
             # --- Документи ---
+            # ⚠️ Верифіковано 2026-03-26: includeDocuments/excludeDocuments спричиняють
+            # HTTP 500 "Сервіс тимчасово недоступний" на стороні Lardi — це серверна
+            # проблема Lardi. Поля передаємо коректно, але фільтр наразі нефункціональний.
             "includeDocuments": payload.includeDocuments,
             "excludeDocuments": payload.excludeDocuments,
             # --- Модифікатори типу кузова ---

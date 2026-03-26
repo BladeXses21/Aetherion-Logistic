@@ -58,9 +58,10 @@ def build_graph(
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,
         model=settings.llm_model,
-        temperature=0.1,  # Низька температура для стабільного вилучення фільтрів
-        timeout=33,        # read timeout (connect=3s вбудований в httpx)
-        streaming=True,    # Потрібно для astream_events
+        temperature=0.1,      # Низька температура для стабільного вилучення фільтрів
+        max_tokens=settings.llm_max_tokens,  # Обмеження токенів відповіді (запобігає 402)
+        timeout=33,            # read timeout (connect=3s вбудований в httpx)
+        streaming=True,        # Потрібно для astream_events
     )
 
     # Ін'єктуємо залежності в інструменти через factory-функції

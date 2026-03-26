@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str = "openrouter/auto"
+    llm_max_tokens: int = 2048  # Обмеження токенів відповіді — запобігає 402 на OpenRouter
     fuel_consumption_l_per_100km: float = 30.0
     margin_overhead_coefficient: float = 1.0
     agent_node_timeout_seconds: int = 15

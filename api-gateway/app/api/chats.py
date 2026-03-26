@@ -1,21 +1,21 @@
 """
-chats.py — API ендпоінти для чатів та повідомлень (Story 4.4).
+chats.py — API ендпоінти для чатів та повідомлень (Story 4.4 + Epic 9.1).
 
 Ендпоінти:
-  POST /api/v1/chats                           — створити новий чат
-  GET  /api/v1/chats/{chat_id}                 — отримати інформацію про чат
-  POST /api/v1/chats/{chat_id}/messages        — відправити повідомлення (SSE streaming)
+  POST /api/v1/chats                           — створити новий чат (захищено JWT)
+  GET  /api/v1/chats/{chat_id}                 — отримати інформацію про чат (захищено JWT)
+  POST /api/v1/chats/{chat_id}/messages        — відправити повідомлення (SSE streaming, JWT)
 
 Логіка POST .../messages:
-  1. Перевірка aetherion:agent:busy Redis ключа → 429 якщо зайнятий
-  2. Збереження повідомлення користувача (status="complete")
-  3. Створення placeholder відповіді асистента (status="streaming")
-  4. Проксування запиту до agent-service POST /stream
-  5. Forwarding SSE стріму клієнту
-  6. Після завершення → оновлення статусу placeholder (complete/incomplete)
+  1. Перевірка JWT → 401 якщо токен відсутній або невалідний
+  2. Перевірка aetherion:agent:busy Redis ключа → 429 якщо зайнятий
+  3. Збереження повідомлення користувача (status="complete")
+  4. Створення placeholder відповіді асистента (status="streaming")
+  5. Проксування запиту до agent-service POST /stream
+  6. Forwarding SSE стріму клієнту
+  7. Після завершення → оновлення статусу placeholder (complete/incomplete)
 
-Аутентифікація: JWT middleware stub — не виконується у MVP (ARCH12).
-Admin ендпоінти захищені X-API-Key (Story 2.4).
+Аутентифікація: JWT через get_current_user dependency (Epic 9.1).
 """
 from __future__ import annotations
 
@@ -30,7 +30,9 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.dependencies import get_current_user
 from app.core.errors import ErrorCode
+from app.db.models.user import User
 from app.db.session import AsyncSessionLocal, get_db
 from app.schemas.chat import ChatCreate, ChatResponse, MessageSendRequest
 from app.services.chat_service import chat_service
@@ -56,24 +58,29 @@ AGENT_READ_TIMEOUT = 90.0  # максимальний час відповіді 
 async def create_chat(
     body: ChatCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ChatResponse:
     """
-    POST /api/v1/chats — Створює новий чат.
+    POST /api/v1/chats — Створює новий чат для поточного автентифікованого користувача.
 
-    Для MVP workspace_id та user_id є опціональними (використовуються stub значення).
-    В Phase 2 будуть читатись з JWT токену.
+    user_id береться з JWT токена (current_user.id).
+    workspace_id залишається опційним у body (для майбутньої multi-workspace підтримки).
 
     Args:
-        body: ChatCreate — workspace_id, user_id (опційно), title.
+        body: ChatCreate — workspace_id (опційно), title.
         db: Async сесія PostgreSQL.
+        current_user: Поточний JWT-автентифікований користувач.
 
     Returns:
         ChatResponse — дані нового чату включно з UUID.
+
+    Raises:
+        HTTPException 401: Токен відсутній або невалідний.
     """
     chat = await chat_service.create_chat(
         db=db,
         workspace_id=body.workspace_id,
-        user_id=body.user_id,
+        user_id=current_user.id,  # JWT → user_id замість stub
         title=body.title,
     )
     return ChatResponse.model_validate(chat)
@@ -88,6 +95,7 @@ async def send_message(
     body: MessageSendRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     POST /api/v1/chats/{chat_id}/messages — Відправляє повідомлення та повертає SSE стрім.

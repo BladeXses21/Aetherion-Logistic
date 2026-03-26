@@ -63,6 +63,28 @@ class CargoSearchRequest(BaseModel):
         onlyActual: Показувати тільки актуальні вантажі (за замовчуванням True).
         distanceKmFrom: Мінімальна відстань маршруту в кілометрах.
         distanceKmTo: Максимальна відстань маршруту в кілометрах.
+        cargos: Ключові слова для пошуку в назві вантажу (включення), напр. ["зерно", "пшениця"].
+        excludeCargos: Ключові слова для виключення вантажів за назвою, напр. ["хімія", "кислота"].
+        adr: Якщо True — тільки вантажі з ADR (небезпечні). Якщо False — без ADR.
+        groupage: Якщо True — тільки збірні вантажі (LTL). Якщо False — лише FTL.
+        onlyWithStavka: Якщо True — лише оголошення з вказаною ціною (без "запит вартості").
+        onlyNew: Якщо True — лише нові оголошення (без повторних).
+        length1: Мінімальна довжина вантажу в метрах / лдм.
+        length2: Максимальна довжина вантажу в метрах / лдм.
+        width1: Мінімальна ширина вантажу в метрах.
+        width2: Максимальна ширина вантажу в метрах.
+        height1: Мінімальна висота вантажу в метрах.
+        height2: Максимальна висота вантажу в метрах.
+        paymentValue: Мінімальна сума оплати (числовий фільтр, у вибраній валюті).
+        includeDocuments: Документи обов'язкові: "cmr", "t1", "tir", "ekmt", "frc", "cmrInsurance".
+        excludeDocuments: Документи не потрібні (ті ж коди).
+        cargoBodyTypeProperties: Модифікатори кузова, наприклад "Jumbo", "Mega", "Doubledeck".
+        onlyShippers: Якщо True — лише від прямих власників вантажу (без посередників).
+        photos: Якщо True — лише оголошення з фотографіями.
+        onlyCarrier: Якщо True — лише від перевізників.
+        onlyExpedition: Якщо True — лише від експедиторів.
+        companyName: Пошук вантажів від конкретної компанії (рядок з назвою).
+        companyRefId: ID компанії в системі Lardi для точного пошуку.
     """
 
     directionFrom: Direction
@@ -83,6 +105,38 @@ class CargoSearchRequest(BaseModel):
     onlyActual: bool = True
     distanceKmFrom: float | None = None
     distanceKmTo: float | None = None
+    # --- Фільтри по назві вантажу (текстовий пошук Lardi) ---
+    cargos: list[str] | None = None
+    excludeCargos: list[str] | None = None
+    # --- ADR / небезпечні вантажі ---
+    adr: bool | None = None
+    # --- Додаткові поведінкові фільтри ---
+    groupage: bool | None = None
+    onlyWithStavka: bool | None = None
+    onlyNew: bool | None = None
+    # --- Фізичні розміри вантажу (метри / лдм) ---
+    length1: float | None = None
+    length2: float | None = None
+    width1: float | None = None
+    width2: float | None = None
+    height1: float | None = None
+    height2: float | None = None
+    # --- Мінімальна сума оплати ---
+    paymentValue: float | None = None
+    # --- Документи ---
+    includeDocuments: list[str] | None = None
+    excludeDocuments: list[str] | None = None
+    # --- Модифікатори типу кузова (Jumbo, Mega, Doubledeck) ---
+    cargoBodyTypeProperties: list[str] | None = None
+    # --- Додаткові бізнес-фільтри ---
+    onlyShippers: bool | None = None
+    photos: bool | None = None
+    # --- Фільтри ролі контрагента ---
+    onlyCarrier: bool | None = None
+    onlyExpedition: bool | None = None
+    # --- Пошук по конкретній компанії ---
+    companyName: str | None = None
+    companyRefId: int | None = None
 
 
 class WaypointInfo(BaseModel):
@@ -111,7 +165,8 @@ class CargoItem(BaseModel):
         body_type: Тип кузова транспортного засобу (рядок, наприклад "Тент").
         route_from: Місто відправлення (з першого елемента waypointListSource).
         route_to: Місто призначення (з першого елемента waypointListTarget).
-        loading_date: Дата завантаження (рядок з поля dateFrom).
+        loading_date: Початкова дата завантаження (рядок з поля dateFrom).
+        loading_date_to: Кінцева дата завантаження — до якої вантаж актуальний (поле dateTo).
         distance_m: Відстань маршруту в метрах (сирий integer від Lardi).
         distance_km: Відстань маршруту в кілометрах (distance_m / 1000, округлення до 0.1).
         payment: Рядок із сумою оплати у форматі Lardi (наприклад, "40 000 грн.").
@@ -126,6 +181,7 @@ class CargoItem(BaseModel):
     route_from: str | None = None
     route_to: str | None = None
     loading_date: str | None = None
+    loading_date_to: str | None = None
     distance_m: int | None = None
     distance_km: float | None = None
     payment: str | None = None

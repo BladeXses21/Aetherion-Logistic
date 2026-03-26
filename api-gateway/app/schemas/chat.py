@@ -21,18 +21,16 @@ class ChatCreate(BaseModel):
 
     Attributes:
         workspace_id: UUID робочого простору (для multi-tenant). За замовчуванням
-                      використовується дефолтний UUID для MVP.
-        user_id: UUID користувача. За замовчуванням дефолтний UUID для MVP.
+                      використовується дефолтний stub workspace.
         title: Назва чату. За замовчуванням "Новий пошук".
+
+    Примітка:
+        user_id більше не передається у тілі запиту — читається з JWT токену (Epic 9.1).
     """
 
     workspace_id: uuid.UUID = Field(
         default_factory=lambda: uuid.UUID("00000000-0000-0000-0000-000000000001"),
         description="UUID робочого простору (MVP: використовується дефолтний stub)",
-    )
-    user_id: uuid.UUID = Field(
-        default_factory=lambda: uuid.UUID("00000000-0000-0000-0000-000000000002"),
-        description="UUID користувача (MVP: використовується дефолтний stub)",
     )
     title: str = Field(default="Новий пошук", max_length=255)
 

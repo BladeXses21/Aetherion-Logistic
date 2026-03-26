@@ -214,3 +214,234 @@ def resolve_country_sign(name: str) -> Optional[str]:
         resolve_country_sign("PL")      # → None (очікується повна назва)
     """
     return COUNTRY_UA_TO_SIGN.get(name.lower().strip())
+
+
+# ---------------------------------------------------------------------------
+# Форми оплати — paymentFormIds (integer array)
+# УВАГА: ID не підтверджені через filterCode — потребують верифікації!
+# Спостережені назви у відповідях Lardi: "безготівка", "готівка", "карта".
+# Типові значення для українських B2B-платформ (оціночні):
+# ---------------------------------------------------------------------------
+PAYMENT_FORM_UA_TO_ID: dict[str, int] = {
+    "готівка":          1,   # cash — НЕ верифіковано
+    "нал":              1,   # скорочення готівки — НЕ верифіковано
+    "нал.":             1,
+    "безготівка":       2,   # bank transfer — НЕ верифіковано
+    "безнал":           2,
+    "безнал.":          2,
+    "банківський":      2,
+    "перерахунок":      2,
+    "карта":            3,   # card — НЕ верифіковано
+    "картка":           3,
+}
+
+
+def resolve_payment_form_id(name: str) -> Optional[int]:
+    """
+    Перетворює українську назву форми оплати в числовий ID для Lardi API.
+
+    УВАГА: ID є оціночними та потребують верифікації через живий мережевий трафік.
+    Для верифікації: обери фільтр "Форма оплати" в UI Lardi, виконай пошук
+    та перевір filterCode або тіло POST запиту в DevTools.
+
+    Args:
+        name: Назва форми оплати (будь-який регістр), наприклад "готівка", "безнал".
+
+    Returns:
+        Числовий ID або None якщо назва не розпізнана.
+    """
+    return PAYMENT_FORM_UA_TO_ID.get(name.lower().strip())
+
+
+# ---------------------------------------------------------------------------
+# Валюта оплати — paymentCurrencyId
+# ПІДТВЕРДЖЕНО з документації Lardi API та filterCode "pc{n}".
+# ---------------------------------------------------------------------------
+PAYMENT_CURRENCY_UA_TO_ID: dict[str, int] = {
+    # UAH (гривня)
+    "uah":      4,
+    "грн":      4,
+    "гривня":   4,
+    "гривні":   4,
+    # USD (долар)
+    "usd":      1,
+    "долар":    1,
+    "долари":   1,
+    "$":        1,
+    # EUR (євро)
+    "eur":      2,
+    "євро":     2,
+    "euro":     2,
+    "€":        2,
+    # Інша валюта
+    "інша":     3,
+    "other":    3,
+}
+
+
+def resolve_payment_currency_id(name: str) -> Optional[int]:
+    """
+    Перетворює назву валюти в числовий ID для поля paymentCurrencyId.
+
+    Підтверджені значення (з filterCode: pc4=UAH, pc1=USD, pc2=EUR):
+        4 = UAH (гривня) — за замовчуванням
+        1 = USD
+        2 = EUR
+        3 = інша валюта
+
+    Args:
+        name: Назва валюти або символ (будь-який регістр).
+
+    Returns:
+        Числовий ID або None якщо не знайдено.
+
+    Приклад:
+        resolve_payment_currency_id("USD")  # → 1
+        resolve_payment_currency_id("грн")  # → 4
+    """
+    return PAYMENT_CURRENCY_UA_TO_ID.get(name.lower().strip())
+
+
+# ---------------------------------------------------------------------------
+# Тип суми оплати — paymentValueType
+# ПІДТВЕРДЖЕНО: filterCode "pt1"=TOTAL, "pt2"=PER_KM, "pt3"=PER_TON.
+# ---------------------------------------------------------------------------
+PAYMENT_VALUE_TYPE_UA_TO_CODE: dict[str, str] = {
+    # TOTAL — загальна сума за рейс
+    "всього":       "TOTAL",
+    "загалом":      "TOTAL",
+    "за рейс":      "TOTAL",
+    "total":        "TOTAL",
+    # PER_KM — ставка за кілометр
+    "за км":        "PER_KM",
+    "за кілометр":  "PER_KM",
+    "per_km":       "PER_KM",
+    "per km":       "PER_KM",
+    # PER_TON — ставка за тонну
+    "за тонну":     "PER_TON",
+    "за т":         "PER_TON",
+    "per_ton":      "PER_TON",
+    "per ton":      "PER_TON",
+}
+
+
+def resolve_payment_value_type(name: str) -> Optional[str]:
+    """
+    Перетворює опис типу суми оплати в код для поля paymentValueType.
+
+    Підтверджені коди (з filterCode: pt1=TOTAL, pt2=PER_KM, pt3=PER_TON):
+        "TOTAL"   — загальна сума за весь рейс (за замовчуванням)
+        "PER_KM"  — ставка за кілометр
+        "PER_TON" — ставка за тонну
+
+    Args:
+        name: Текстовий опис (будь-який регістр), наприклад "за км", "за тонну".
+
+    Returns:
+        Рядковий код або None якщо не знайдено.
+    """
+    return PAYMENT_VALUE_TYPE_UA_TO_CODE.get(name.lower().strip())
+
+
+# ---------------------------------------------------------------------------
+# Транспортні документи — includeDocuments / excludeDocuments
+# ПІДТВЕРДЖЕНО: коди зафіксовані в API reference з живої сесії.
+# Lardi використовує ці рядкові коди напряму в масивах включення/виключення.
+# ---------------------------------------------------------------------------
+VALID_DOCUMENT_CODES: frozenset[str] = frozenset({
+    "cmr",           # CMR накладна (міжнародна)
+    "t1",            # Митний транзит T1
+    "tir",           # TIR Carnet (міжнародний)
+    "ekmt",          # ЄКМТ дозвіл (багатосторонній)
+    "frc",           # FRC — Forwarder's Release Certificate
+    "cmrInsurance",  # Страховка CMR
+})
+
+# Словник: українська/англійська назва документа → рядковий код Lardi
+DOCUMENT_UA_TO_CODE: dict[str, str] = {
+    # CMR
+    "cmr":              "cmr",
+    "цмр":              "cmr",
+    "накладна":         "cmr",
+    "міжнародна накладна": "cmr",
+    # T1
+    "t1":               "t1",
+    "т1":               "t1",
+    "транзит":          "t1",
+    "митний транзит":   "t1",
+    # TIR
+    "tir":              "tir",
+    "тір":              "tir",
+    "книжка tir":       "tir",
+    # EKMT
+    "ekmt":             "ekmt",
+    "єкмт":             "ekmt",
+    "дозвіл єкмт":      "ekmt",
+    # FRC
+    "frc":              "frc",
+    # CMR Insurance
+    "cmrinsurance":     "cmrInsurance",
+    "страховка cmr":    "cmrInsurance",
+    "страховка":        "cmrInsurance",
+    "cmr страховка":    "cmrInsurance",
+}
+
+
+def resolve_document_code(name: str) -> Optional[str]:
+    """
+    Перетворює назву транспортного документа в код для Lardi API.
+
+    Підтверджені коди: "cmr", "t1", "tir", "ekmt", "frc", "cmrInsurance".
+    Lardi використовує ці рядки напряму в полях includeDocuments та excludeDocuments.
+
+    Args:
+        name: Назва документа (довільний регістр), наприклад "TIR", "цмр", "транзит".
+
+    Returns:
+        Рядковий код або None якщо не розпізнано.
+
+    Приклад:
+        resolve_document_code("TIR")     # → "tir"
+        resolve_document_code("цмр")     # → "cmr"
+        resolve_document_code("transit") # → None
+    """
+    return DOCUMENT_UA_TO_CODE.get(name.lower().strip())
+
+
+# ---------------------------------------------------------------------------
+# Модифікатори типу кузова — cargoBodyTypeProperties
+# УВАГА: формат cargoBodyTypeProperties у Lardi API не підтверджений —
+# у відповідях це порожній масив []. Назви модифікаторів з UI:
+# "Doubledeck", "Jumbo", "Mega" — зустрічаються як prefix у списку bodyTypes.
+# Поточна реалізація передає рядкові назви — потребує верифікації через DevTools.
+# ---------------------------------------------------------------------------
+CARGO_BODY_MODIFIER_UA_TO_NAME: dict[str, str] = {
+    "джамбо":       "Jumbo",
+    "jumbo":        "Jumbo",
+    "мега":         "Mega",
+    "mega":         "Mega",
+    "doubledeck":   "Doubledeck",
+    "дабл":         "Doubledeck",
+    "двоповерховий": "Doubledeck",
+    "двоярусний":   "Doubledeck",
+}
+
+
+def resolve_body_modifier(name: str) -> Optional[str]:
+    """
+    Перетворює назву модифікатора кузова в канонічну назву для Lardi API.
+
+    УВАГА: формат поля cargoBodyTypeProperties не підтверджений через живий трафік.
+    Передаємо рядкові назви ("Jumbo", "Mega", "Doubledeck") — потребує верифікації.
+
+    Args:
+        name: Назва модифікатора (будь-який регістр).
+
+    Returns:
+        Канонічна рядкова назва або None якщо не розпізнано.
+
+    Приклад:
+        resolve_body_modifier("джамбо")  # → "Jumbo"
+        resolve_body_modifier("Mega")    # → "Mega"
+    """
+    return CARGO_BODY_MODIFIER_UA_TO_NAME.get(name.lower().strip())

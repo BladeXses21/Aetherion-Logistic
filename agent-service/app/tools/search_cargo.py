@@ -5,11 +5,12 @@ search_cargo.py — LangChain інструмент пошуку вантажів
   1. Розв'язання назв міст/країн у DirectionFilter (geo_resolver)
   2. Виклик lardi-connector POST /search
   3. Розрахунок паливної маржі для кожного результату
-  4. Ранжування за маржею (спадання), відбір топ-3
-  5. Генерація пропозицій при 0 результатах (Story 4.5)
+  4. Ранжування за маржею (спадання), відбір топ-N (визначається параметром limit)
+  5. Фільтрація вже показаних вантажів (exclude_ids) для пагінації
+  6. Генерація пропозицій при 0 результатах (Story 4.5)
 
 Вхідні дані: природномовні параметри від LLM (назви міст як рядки).
-Вихідні дані: JSON рядок з топ-3 результатами обгорнутими в [EXTERNAL DATA].
+Вихідні дані: JSON рядок з результатами обгорнутими в [EXTERNAL DATA].
 
 Все що стосується LTSID залишається в lardi-connector — інструмент не має доступу до сесійних даних.
 """
@@ -22,16 +23,6 @@ import structlog
 from langchain_core.tools import tool
 
 log = structlog.get_logger()
-
-# Пріоритет пропозицій при 0 результатах (Story 4.5)
-# route > weight > bodyType > payment
-_ZERO_RESULTS_SUGGESTIONS = [
-    # (перевірка наявності фільтру, текст пропозиції)
-    ("townId_set", "Розшир район завантаження до область або країна"),
-    ("mass1_set", "Спробуй зменшити вагу або прибрати фільтр ваги"),
-    ("bodyTypeIds_set", "Спробуй без фільтру типу кузова"),
-    ("paymentFormIds_set", "Спробуй без фільтру форми оплати"),
-]
 
 
 def _calculate_margin(
@@ -73,8 +64,9 @@ def _build_zero_results_suggestion(search_request: dict) -> str:
     """
     Генерує конкретну пропозицію для розширення фільтрів при 0 результатах.
 
-    Пріоритет: route (townId) > weight (mass1) > bodyType > payment.
-    Перевіряє наявність фільтрів у вихідному запиті та повертає першу доречну пораду.
+    Пріоритет перевірки: маршрут (townId) → вага (mass1) → тип кузова →
+    ключові слова вантажу → виключення вантажів → форма оплати → загальна порада.
+    Повертає першу релевантну пораду — ту фільтр якої найбільш звужує результати.
 
     Args:
         search_request: Словник запиту що був відправлений в lardi-connector.
@@ -89,6 +81,8 @@ def _build_zero_results_suggestion(search_request: dict) -> str:
     has_mass1 = search_request.get("mass1") is not None
     has_body_type = bool(search_request.get("bodyTypeIds"))
     has_payment_form = bool(search_request.get("paymentFormIds"))
+    has_cargo_keywords = bool(search_request.get("cargos"))
+    has_exclude_keywords = bool(search_request.get("excludeCargos"))
 
     if has_town_id:
         return "Розшир район завантаження до область або країна"
@@ -96,6 +90,10 @@ def _build_zero_results_suggestion(search_request: dict) -> str:
         return "Спробуй зменшити вагу або прибрати фільтр ваги"
     if has_body_type:
         return "Спробуй без фільтру типу кузова"
+    if has_cargo_keywords:
+        return "Спробуй прибрати фільтр за назвою вантажу — можливо такого товару зараз немає на маршруті"
+    if has_exclude_keywords:
+        return "Фільтр виключення вантажів занадто жорсткий — спробуй прибрати деякі ключові слова"
     if has_payment_form:
         return "Спробуй без фільтру форми оплати"
 
@@ -142,6 +140,29 @@ def make_search_cargo_tool(
         max_weight: float | None = None,
         load_date_from: str | None = None,
         load_date_to: str | None = None,
+        cargo_keywords: list[str] | None = None,
+        exclude_cargo_keywords: list[str] | None = None,
+        payment_form: str | None = None,
+        payment_value_type: str | None = None,
+        payment_currency: str | None = None,
+        adr_only: bool | None = None,
+        groupage: bool | None = None,
+        only_with_price: bool | None = None,
+        min_width: float | None = None,
+        max_width: float | None = None,
+        min_height: float | None = None,
+        max_height: float | None = None,
+        min_payment: float | None = None,
+        required_documents: list[str] | None = None,
+        excluded_documents: list[str] | None = None,
+        body_modifiers: list[str] | None = None,
+        only_shippers: bool | None = None,
+        with_photos: bool | None = None,
+        only_carrier: bool | None = None,
+        only_expedition: bool | None = None,
+        company_name: str | None = None,
+        limit: int = 3,
+        exclude_ids: list[int] | None = None,
     ) -> str:
         """
         Шукає вантажі на Lardi-Trans та ранжує за паливною маржею.
@@ -153,16 +174,64 @@ def make_search_cargo_tool(
             from_location: Місто або країна відправлення (рядок, наприклад "Київ", "Харків", "Україна").
             to_location: Місто або країна призначення (рядок, наприклад "Варшава", "Польща", "Германія").
             body_type: Тип кузова українською (наприклад "тент", "реф", "бус"). Необов'язково.
-            load_type: Тип завантаження українською (наприклад "задня", "верхня", "бічна", "гідроборт"). Необов'язково.
+            load_type: Тип завантаження (наприклад "задня", "верхня", "бічна", "гідроборт"). Необов'язково.
             min_weight: Мінімальна вага вантажу в тоннах. Необов'язково.
             max_weight: Максимальна вага вантажу в тоннах. Необов'язково.
             load_date_from: Початкова дата завантаження у форматі ISO 8601 (YYYY-MM-DD). Необов'язково.
             load_date_to: Кінцева дата завантаження у форматі ISO 8601 (YYYY-MM-DD). Необов'язково.
+            cargo_keywords: Ключові слова для пошуку в назві вантажу (включення).
+                Приклад: ["зерно", "пшениця"] — показати лише зернові.
+                Витягуй з запиту якщо користувач каже "знайди зерно" або "потрібні продукти".
+            exclude_cargo_keywords: Ключові слова для виключення вантажів за назвою.
+                Приклад: ["хімія", "хімікат", "кислота", "ADR"] — виключити небезпечні вантажі.
+                Витягуй якщо користувач каже "без хімії", "не хочу хімікати", "без ADR".
+            payment_form: Форма оплати українською: "готівка", "безготівка", "карта". Необов'язково.
+            payment_value_type: Тип суми: "за рейс" (TOTAL), "за км" (PER_KM), "за тонну" (PER_TON). Необов'язково.
+            payment_currency: Валюта: "грн" / "UAH", "USD", "EUR". За замовчуванням UAH.
+            adr_only: True — тільки ADR (небезпечні вантажі). False — без ADR. None — без фільтру.
+            groupage: True — тільки збірні вантажі (LTL). False — лише повне авто (FTL). None — без фільтру.
+            only_with_price: True — лише оголошення з вказаною ціною (без "запит вартості"). Необов'язково.
+            min_width: Мінімальна ширина вантажу в метрах. Необов'язково.
+            max_width: Максимальна ширина вантажу в метрах. Необов'язково.
+            min_height: Мінімальна висота вантажу в метрах. Необов'язково.
+            max_height: Максимальна висота вантажу в метрах. Необов'язково.
+            min_payment: Мінімальна сума оплати (у вибраній валюті). Приклад: 8000 (грн). Необов'язково.
+            required_documents: Список обов'язкових документів. Допустимі коди:
+                "cmr", "tir", "t1", "ekmt", "frc", "страховка cmr".
+                Приклад: ["cmr", "tir"] — лише вантажі що потребують CMR і TIR.
+            excluded_documents: Документи що не потрібні (ті ж коди).
+            body_modifiers: Модифікатори кузова: "jumbo", "mega", "doubledeck".
+                Приклад: ["jumbo"] — тільки Jumbo тент.
+            only_shippers: True — лише від прямих власників вантажу (без посередників/брокерів).
+                False або None — без фільтру.
+            with_photos: True — лише оголошення з фотографіями вантажу. None — без фільтру.
+            only_carrier: True — лише від перевізників. None — без фільтру.
+            only_expedition: True — лише від експедиторів. None — без фільтру.
+            company_name: Назва компанії для пошуку вантажів від конкретного відправника.
+                Приклад: "АТБ", "Нова Пошта". None — без фільтру.
+            limit: Кількість вантажів що потрібно повернути (від 1 до 25). За замовчуванням 3.
+                Якщо користувач просить "ще вантажі", "більше результатів", "дай 10" — збільш значення.
+            exclude_ids: Список ID вантажів що вже були показані користувачу — вони будуть
+                виключені з нових результатів. Передавай всі ID з попередніх відповідей
+                при повторному пошуку ("ще вантажі", "покажи більше").
+                Приклад: [204333882919, 282377239780, 206668785705]
 
         Returns:
-            JSON рядок з топ-3 результатами за паливною маржею або пропозиціями при 0 результатах.
+            JSON рядок зі списком вантажів (до limit штук) за паливною маржею
+            або пропозиціями по розширенню фільтрів при 0 результатах.
+            Кожен вантаж містить: id, маршрут, тип кузова, вагу, відстань,
+            loading_date (початок), loading_date_to (кінцевий термін), оплату та маржу.
         """
-        from app.constants import BODY_TYPE_UA_TO_ID, LOAD_TYPE_UA_TO_CODE
+        from app.constants import (
+            BODY_TYPE_UA_TO_ID,
+            LOAD_TYPE_UA_TO_CODE,
+            PAYMENT_FORM_UA_TO_ID,
+            PAYMENT_CURRENCY_UA_TO_ID,
+            PAYMENT_VALUE_TYPE_UA_TO_CODE,
+            DOCUMENT_UA_TO_CODE,
+            VALID_DOCUMENT_CODES,
+            CARGO_BODY_MODIFIER_UA_TO_NAME,
+        )
 
         # Отримуємо поточну ціну палива
         fuel_price = await fuel_price_service.get_price(redis_client)
@@ -219,16 +288,119 @@ def make_search_cargo_tool(
                     raw_value=load_type,
                 )
 
+        # Розв'язуємо форму оплати (готівка/безготівка/карта → ID)
+        payment_form_ids: list[int] | None = None
+        if payment_form:
+            resolved_pf = PAYMENT_FORM_UA_TO_ID.get(payment_form.lower().strip())
+            if resolved_pf:
+                payment_form_ids = [resolved_pf]
+            else:
+                log.warning(
+                    "intent_filter_cast_failed",
+                    field="paymentForm",
+                    raw_value=payment_form,
+                )
+
+        # Розв'язуємо валюту оплати (грн/USD/EUR → ID)
+        payment_currency_id: int = 4  # UAH за замовчуванням
+        if payment_currency:
+            resolved_curr = PAYMENT_CURRENCY_UA_TO_ID.get(payment_currency.lower().strip())
+            if resolved_curr is not None:
+                payment_currency_id = resolved_curr
+            else:
+                log.warning(
+                    "intent_filter_cast_failed",
+                    field="paymentCurrency",
+                    raw_value=payment_currency,
+                )
+
+        # Розв'язуємо тип суми оплати (за рейс / за км / за тонну)
+        resolved_pvt: str | None = None
+        if payment_value_type:
+            resolved_pvt = PAYMENT_VALUE_TYPE_UA_TO_CODE.get(
+                payment_value_type.lower().strip()
+            )
+            if not resolved_pvt:
+                log.warning(
+                    "intent_filter_cast_failed",
+                    field="paymentValueType",
+                    raw_value=payment_value_type,
+                )
+
+        # Розв'язуємо документи (cmr/tir/t1 тощо) через маппінг або прямі коди
+        resolved_include_docs: list[str] | None = None
+        if required_documents:
+            resolved_include_docs = []
+            for doc in required_documents:
+                code = DOCUMENT_UA_TO_CODE.get(doc.lower().strip()) or (
+                    doc if doc in VALID_DOCUMENT_CODES else None
+                )
+                if code:
+                    resolved_include_docs.append(code)
+                else:
+                    log.warning(
+                        "intent_filter_cast_failed",
+                        field="includeDocuments",
+                        raw_value=doc,
+                    )
+            resolved_include_docs = resolved_include_docs or None
+
+        resolved_exclude_docs: list[str] | None = None
+        if excluded_documents:
+            resolved_exclude_docs = []
+            for doc in excluded_documents:
+                code = DOCUMENT_UA_TO_CODE.get(doc.lower().strip()) or (
+                    doc if doc in VALID_DOCUMENT_CODES else None
+                )
+                if code:
+                    resolved_exclude_docs.append(code)
+                else:
+                    log.warning(
+                        "intent_filter_cast_failed",
+                        field="excludeDocuments",
+                        raw_value=doc,
+                    )
+            resolved_exclude_docs = resolved_exclude_docs or None
+
+        # Розв'язуємо модифікатори кузова (jumbo/mega/doubledeck)
+        resolved_modifiers: list[str] | None = None
+        if body_modifiers:
+            resolved_modifiers = []
+            for mod in body_modifiers:
+                name = CARGO_BODY_MODIFIER_UA_TO_NAME.get(mod.lower().strip())
+                if name:
+                    resolved_modifiers.append(name)
+                else:
+                    log.warning(
+                        "intent_filter_cast_failed",
+                        field="cargoBodyTypeProperties",
+                        raw_value=mod,
+                    )
+            resolved_modifiers = resolved_modifiers or None
+
+        # Нормалізуємо limit (від 1 до 25)
+        safe_limit = max(1, min(25, limit))
+
+        # Розмір вибірки з Lardi — достатньо великий щоб після виключення
+        # вже показаних вантажів (exclude_ids) залишилось safe_limit нових
+        exclude_count = len(exclude_ids) if exclude_ids else 0
+        fetch_size = max(50, safe_limit * 3 + exclude_count)
+
         # Формуємо запит до lardi-connector
         search_request: dict[str, Any] = {
             "directionFrom": from_direction,
             "directionTo": to_direction,
-            "size": 50,  # отримуємо більше для кращого ранжування
+            "size": fetch_size,
+            "paymentCurrencyId": payment_currency_id,
         }
+        if resolved_pvt:
+            search_request["paymentValueType"] = resolved_pvt
         if body_type_ids:
             search_request["bodyTypeIds"] = body_type_ids
         if load_type_codes:
             search_request["loadTypes"] = load_type_codes
+        if payment_form_ids:
+            search_request["paymentFormIds"] = payment_form_ids
         if min_weight is not None:
             search_request["mass1"] = min_weight
         if max_weight is not None:
@@ -237,6 +409,51 @@ def make_search_cargo_tool(
             search_request["dateFromISO"] = load_date_from
         if load_date_to:
             search_request["dateToISO"] = load_date_to
+        # Фільтр по назві вантажу (текстовий пошук Lardi)
+        if cargo_keywords:
+            search_request["cargos"] = cargo_keywords
+        if exclude_cargo_keywords:
+            search_request["excludeCargos"] = exclude_cargo_keywords
+        # ADR, збірні, тільки з ціною
+        if adr_only is not None:
+            search_request["adr"] = adr_only
+        if groupage is not None:
+            search_request["groupage"] = groupage
+        if only_with_price is not None:
+            search_request["onlyWithStavka"] = only_with_price
+        # Фізичні розміри кузова
+        if min_width is not None:
+            search_request["width1"] = min_width
+        if max_width is not None:
+            search_request["width2"] = max_width
+        if min_height is not None:
+            search_request["height1"] = min_height
+        if max_height is not None:
+            search_request["height2"] = max_height
+        # Мінімальна сума оплати
+        if min_payment is not None:
+            search_request["paymentValue"] = min_payment
+        # Документи
+        if resolved_include_docs:
+            search_request["includeDocuments"] = resolved_include_docs
+        if resolved_exclude_docs:
+            search_request["excludeDocuments"] = resolved_exclude_docs
+        # Модифікатори кузова
+        if resolved_modifiers:
+            search_request["cargoBodyTypeProperties"] = resolved_modifiers
+        # Бізнес-фільтри: тільки від власника вантажу, тільки з фото
+        if only_shippers is not None:
+            search_request["onlyShippers"] = only_shippers
+        if with_photos is not None:
+            search_request["photos"] = with_photos
+        # Ролі контрагента: перевізник / експедитор
+        if only_carrier is not None:
+            search_request["onlyCarrier"] = only_carrier
+        if only_expedition is not None:
+            search_request["onlyExpedition"] = only_expedition
+        # Пошук по конкретній компанії
+        if company_name:
+            search_request["companyName"] = company_name
 
         # Викликаємо lardi-connector
         try:
@@ -266,9 +483,17 @@ def make_search_cargo_tool(
                 ensure_ascii=False,
             )
 
+        # Набір ID що вже показувались — для пагінації ("покажи ще")
+        excluded_set: set[int] = set(exclude_ids) if exclude_ids else set()
+
         # Розраховуємо маржу для кожного результату
         enriched: list[dict] = []
         for item in proposals:
+            # Пропускаємо вже показані вантажі (пагінація)
+            cargo_id = item.get("id")
+            if cargo_id in excluded_set:
+                continue
+
             # Перевіряємо валідність оплати (тільки UAH = currency_id 4)
             payment_value: float | None = None
             if item.get("payment_currency_id") == 4:
@@ -284,18 +509,23 @@ def make_search_cargo_tool(
                 overhead_coeff=overhead_coeff,
             )
 
-            # Тільки trimmed поля для LLM контексту (NFR12 — мінімізація даних)
+            # Trimmed поля для LLM контексту (NFR12 — мінімізація даних).
+            # payment — форматований рядок від Lardi ("40 000 грн.", "Запит вартості" тощо)
+            # loading_date_to — дата до якої вантаж активний (кінець прийому заявок)
             enriched.append(
                 {
-                    "id": item.get("id"),
+                    "id": cargo_id,
                     "route_from": item.get("route_from"),
                     "route_to": item.get("route_to"),
                     "body_type": item.get("body_type"),
                     "distance_km": item.get("distance_km"),
                     "loading_date": item.get("loading_date"),
+                    "loading_date_to": item.get("loading_date_to"),
                     "cargo_name": item.get("cargo_name"),
                     "cargo_mass": item.get("cargo_mass"),
+                    "payment": item.get("payment"),
                     "payment_value": payment_value,
+                    "payment_currency_id": item.get("payment_currency_id"),
                     "estimated_fuel_margin": margin,
                 }
             )
@@ -308,26 +538,27 @@ def make_search_cargo_tool(
         )
         without_margin = [r for r in enriched if r["estimated_fuel_margin"] is None]
 
-        # Відбираємо топ-3 (або більше якщо перші 3 без маржі — Story 4.2)
-        ranked = with_margin[:3]
-        if len(ranked) < 3:
-            extra_needed = 3 - len(ranked)
+        # Відбираємо топ-N (safe_limit) — спочатку ті що мають маржу
+        ranked = with_margin[:safe_limit]
+        if len(ranked) < safe_limit:
+            extra_needed = safe_limit - len(ranked)
             ranked += without_margin[:extra_needed]
 
-        # Якщо взагалі немає маржі — беремо топ-3 без неї
+        # Якщо взагалі немає маржі — беремо топ-N без неї
         if not ranked:
-            ranked = enriched[:3]
+            ranked = enriched[:safe_limit]
 
         result = {
             "results": ranked,
             "total_found": total_size,
+            "shown_count": len(ranked),
             "capped": capped,
             "suggestion": None,
         }
 
         if capped:
             result["capped_note"] = (
-                "Показую топ-3 з 500+ результатів — результати обрізані. "
+                f"Показую топ-{safe_limit} з 500+ результатів — результати обрізані. "
                 "Звуж фільтри для точнішого пошуку."
             )
 

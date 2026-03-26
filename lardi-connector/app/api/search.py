@@ -291,6 +291,40 @@ def _build_lardi_payload(
             "onlyActual": payload.onlyActual,
             "distanceKmFrom": payload.distanceKmFrom,
             "distanceKmTo": payload.distanceKmTo,
+            # --- Фільтри по назві вантажу (текстовий пошук) ---
+            "cargos": payload.cargos,
+            "excludeCargos": payload.excludeCargos,
+            # --- ADR та поведінкові фільтри ---
+            "adr": payload.adr,
+            "groupage": payload.groupage,
+            "onlyWithStavka": payload.onlyWithStavka,
+            "onlyNew": payload.onlyNew,
+            # --- Фізичні розміри ---
+            "length1": payload.length1,
+            "length2": payload.length2,
+            "width1": payload.width1,
+            "width2": payload.width2,
+            "height1": payload.height1,
+            "height2": payload.height2,
+            # --- Мінімальна сума оплати ---
+            "paymentValue": payload.paymentValue,
+            # --- Документи ---
+            # ⚠️ Верифіковано 2026-03-26: includeDocuments/excludeDocuments спричиняють
+            # HTTP 500 "Сервіс тимчасово недоступний" на стороні Lardi — це серверна
+            # проблема Lardi. Поля передаємо коректно, але фільтр наразі нефункціональний.
+            "includeDocuments": payload.includeDocuments,
+            "excludeDocuments": payload.excludeDocuments,
+            # --- Модифікатори типу кузова ---
+            "cargoBodyTypeProperties": payload.cargoBodyTypeProperties,
+            # --- Бізнес-фільтри ---
+            "onlyShippers": payload.onlyShippers,
+            "photos": payload.photos,
+            # --- Ролі контрагента ---
+            "onlyCarrier": payload.onlyCarrier,
+            "onlyExpedition": payload.onlyExpedition,
+            # --- Пошук по компанії ---
+            "companyName": payload.companyName,
+            "companyRefId": payload.companyRefId,
         },
     }
 
@@ -309,9 +343,10 @@ def _parse_response(raw: dict, page: int) -> CargoSearchResponse:
     Returns:
         CargoSearchResponse з переліком вантажів та метаданими.
     """
-    result = raw.get("result", {})
-    proposals_raw = result.get("proposals", [])
-    paginator = result.get("paginator", {})
+    result = raw.get("result") or {}
+    proposals_raw = result.get("proposals") or []
+    # paginator може бути None якщо Lardi повертає "paginator": null
+    paginator = result.get("paginator") or {}
     total_size = paginator.get("totalSize", 0)
 
     items = [_parse_cargo_item(p) for p in proposals_raw]
@@ -369,6 +404,7 @@ def _parse_cargo_item(p: dict) -> CargoItem:
         route_from=route_from,
         route_to=route_to,
         loading_date=p.get("dateFrom"),
+        loading_date_to=p.get("dateTo"),  # кінцева дата актуальності вантажу
         distance_m=distance_m,
         distance_km=distance_km,
         payment=p.get("payment"),

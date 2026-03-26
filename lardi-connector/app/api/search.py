@@ -302,6 +302,17 @@ def _build_lardi_payload(
             # --- Фізичні розміри ---
             "length1": payload.length1,
             "length2": payload.length2,
+            "width1": payload.width1,
+            "width2": payload.width2,
+            "height1": payload.height1,
+            "height2": payload.height2,
+            # --- Мінімальна сума оплати ---
+            "paymentValue": payload.paymentValue,
+            # --- Документи ---
+            "includeDocuments": payload.includeDocuments,
+            "excludeDocuments": payload.excludeDocuments,
+            # --- Модифікатори типу кузова ---
+            "cargoBodyTypeProperties": payload.cargoBodyTypeProperties,
         },
     }
 

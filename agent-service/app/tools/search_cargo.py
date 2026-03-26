@@ -147,6 +147,14 @@ def make_search_cargo_tool(
         adr_only: bool | None = None,
         groupage: bool | None = None,
         only_with_price: bool | None = None,
+        min_width: float | None = None,
+        max_width: float | None = None,
+        min_height: float | None = None,
+        max_height: float | None = None,
+        min_payment: float | None = None,
+        required_documents: list[str] | None = None,
+        excluded_documents: list[str] | None = None,
+        body_modifiers: list[str] | None = None,
     ) -> str:
         """
         Шукає вантажі на Lardi-Trans та ранжує за паливною маржею.
@@ -175,6 +183,17 @@ def make_search_cargo_tool(
             adr_only: True — тільки ADR (небезпечні вантажі). False — без ADR. None — без фільтру.
             groupage: True — тільки збірні вантажі (LTL). False — лише повне авто (FTL). None — без фільтру.
             only_with_price: True — лише оголошення з вказаною ціною (без "запит вартості"). Необов'язково.
+            min_width: Мінімальна ширина вантажу в метрах. Необов'язково.
+            max_width: Максимальна ширина вантажу в метрах. Необов'язково.
+            min_height: Мінімальна висота вантажу в метрах. Необов'язково.
+            max_height: Максимальна висота вантажу в метрах. Необов'язково.
+            min_payment: Мінімальна сума оплати (у вибраній валюті). Приклад: 8000 (грн). Необов'язково.
+            required_documents: Список обов'язкових документів. Допустимі коди:
+                "cmr", "tir", "t1", "ekmt", "frc", "страховка cmr".
+                Приклад: ["cmr", "tir"] — лише вантажі що потребують CMR і TIR.
+            excluded_documents: Документи що не потрібні (ті ж коди).
+            body_modifiers: Модифікатори кузова: "jumbo", "mega", "doubledeck".
+                Приклад: ["jumbo"] — тільки Jumbo тент.
 
         Returns:
             JSON рядок з топ-3 результатами за паливною маржею або пропозиціями при 0 результатах.
@@ -185,6 +204,9 @@ def make_search_cargo_tool(
             PAYMENT_FORM_UA_TO_ID,
             PAYMENT_CURRENCY_UA_TO_ID,
             PAYMENT_VALUE_TYPE_UA_TO_CODE,
+            DOCUMENT_UA_TO_CODE,
+            VALID_DOCUMENT_CODES,
+            CARGO_BODY_MODIFIER_UA_TO_NAME,
         )
 
         # Отримуємо поточну ціну палива
@@ -281,6 +303,57 @@ def make_search_cargo_tool(
                     raw_value=payment_value_type,
                 )
 
+        # Розв'язуємо документи (cmr/tir/t1 тощо) через маппінг або прямі коди
+        resolved_include_docs: list[str] | None = None
+        if required_documents:
+            resolved_include_docs = []
+            for doc in required_documents:
+                code = DOCUMENT_UA_TO_CODE.get(doc.lower().strip()) or (
+                    doc if doc in VALID_DOCUMENT_CODES else None
+                )
+                if code:
+                    resolved_include_docs.append(code)
+                else:
+                    log.warning(
+                        "intent_filter_cast_failed",
+                        field="includeDocuments",
+                        raw_value=doc,
+                    )
+            resolved_include_docs = resolved_include_docs or None
+
+        resolved_exclude_docs: list[str] | None = None
+        if excluded_documents:
+            resolved_exclude_docs = []
+            for doc in excluded_documents:
+                code = DOCUMENT_UA_TO_CODE.get(doc.lower().strip()) or (
+                    doc if doc in VALID_DOCUMENT_CODES else None
+                )
+                if code:
+                    resolved_exclude_docs.append(code)
+                else:
+                    log.warning(
+                        "intent_filter_cast_failed",
+                        field="excludeDocuments",
+                        raw_value=doc,
+                    )
+            resolved_exclude_docs = resolved_exclude_docs or None
+
+        # Розв'язуємо модифікатори кузова (jumbo/mega/doubledeck)
+        resolved_modifiers: list[str] | None = None
+        if body_modifiers:
+            resolved_modifiers = []
+            for mod in body_modifiers:
+                name = CARGO_BODY_MODIFIER_UA_TO_NAME.get(mod.lower().strip())
+                if name:
+                    resolved_modifiers.append(name)
+                else:
+                    log.warning(
+                        "intent_filter_cast_failed",
+                        field="cargoBodyTypeProperties",
+                        raw_value=mod,
+                    )
+            resolved_modifiers = resolved_modifiers or None
+
         # Формуємо запит до lardi-connector
         search_request: dict[str, Any] = {
             "directionFrom": from_direction,
@@ -316,6 +389,26 @@ def make_search_cargo_tool(
             search_request["groupage"] = groupage
         if only_with_price is not None:
             search_request["onlyWithStavka"] = only_with_price
+        # Фізичні розміри кузова
+        if min_width is not None:
+            search_request["width1"] = min_width
+        if max_width is not None:
+            search_request["width2"] = max_width
+        if min_height is not None:
+            search_request["height1"] = min_height
+        if max_height is not None:
+            search_request["height2"] = max_height
+        # Мінімальна сума оплати
+        if min_payment is not None:
+            search_request["paymentValue"] = min_payment
+        # Документи
+        if resolved_include_docs:
+            search_request["includeDocuments"] = resolved_include_docs
+        if resolved_exclude_docs:
+            search_request["excludeDocuments"] = resolved_exclude_docs
+        # Модифікатори кузова
+        if resolved_modifiers:
+            search_request["cargoBodyTypeProperties"] = resolved_modifiers
 
         # Викликаємо lardi-connector
         try:

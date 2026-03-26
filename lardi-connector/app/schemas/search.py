@@ -71,6 +71,14 @@ class CargoSearchRequest(BaseModel):
         onlyNew: Якщо True — лише нові оголошення (без повторних).
         length1: Мінімальна довжина вантажу в метрах / лдм.
         length2: Максимальна довжина вантажу в метрах / лдм.
+        width1: Мінімальна ширина вантажу в метрах.
+        width2: Максимальна ширина вантажу в метрах.
+        height1: Мінімальна висота вантажу в метрах.
+        height2: Максимальна висота вантажу в метрах.
+        paymentValue: Мінімальна сума оплати (числовий фільтр, у вибраній валюті).
+        includeDocuments: Документи обов'язкові: "cmr", "t1", "tir", "ekmt", "frc", "cmrInsurance".
+        excludeDocuments: Документи не потрібні (ті ж коди).
+        cargoBodyTypeProperties: Модифікатори кузова, наприклад "Jumbo", "Mega", "Doubledeck".
     """
 
     directionFrom: Direction
@@ -103,6 +111,17 @@ class CargoSearchRequest(BaseModel):
     # --- Фізичні розміри вантажу (метри / лдм) ---
     length1: float | None = None
     length2: float | None = None
+    width1: float | None = None
+    width2: float | None = None
+    height1: float | None = None
+    height2: float | None = None
+    # --- Мінімальна сума оплати ---
+    paymentValue: float | None = None
+    # --- Документи ---
+    includeDocuments: list[str] | None = None
+    excludeDocuments: list[str] | None = None
+    # --- Модифікатори типу кузова (Jumbo, Mega, Doubledeck) ---
+    cargoBodyTypeProperties: list[str] | None = None
 
 
 class WaypointInfo(BaseModel):

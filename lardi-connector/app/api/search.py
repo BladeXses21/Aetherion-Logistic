@@ -291,6 +291,17 @@ def _build_lardi_payload(
             "onlyActual": payload.onlyActual,
             "distanceKmFrom": payload.distanceKmFrom,
             "distanceKmTo": payload.distanceKmTo,
+            # --- Фільтри по назві вантажу (текстовий пошук) ---
+            "cargos": payload.cargos,
+            "excludeCargos": payload.excludeCargos,
+            # --- ADR та поведінкові фільтри ---
+            "adr": payload.adr,
+            "groupage": payload.groupage,
+            "onlyWithStavka": payload.onlyWithStavka,
+            "onlyNew": payload.onlyNew,
+            # --- Фізичні розміри ---
+            "length1": payload.length1,
+            "length2": payload.length2,
         },
     }
 

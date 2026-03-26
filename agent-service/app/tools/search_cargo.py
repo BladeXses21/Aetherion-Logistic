@@ -23,16 +23,6 @@ from langchain_core.tools import tool
 
 log = structlog.get_logger()
 
-# Пріоритет пропозицій при 0 результатах (Story 4.5)
-# route > weight > bodyType > payment
-_ZERO_RESULTS_SUGGESTIONS = [
-    # (перевірка наявності фільтру, текст пропозиції)
-    ("townId_set", "Розшир район завантаження до область або країна"),
-    ("mass1_set", "Спробуй зменшити вагу або прибрати фільтр ваги"),
-    ("bodyTypeIds_set", "Спробуй без фільтру типу кузова"),
-    ("paymentFormIds_set", "Спробуй без фільтру форми оплати"),
-]
-
 
 def _calculate_margin(
     distance_km: float | None,
@@ -73,8 +63,9 @@ def _build_zero_results_suggestion(search_request: dict) -> str:
     """
     Генерує конкретну пропозицію для розширення фільтрів при 0 результатах.
 
-    Пріоритет: route (townId) > weight (mass1) > bodyType > payment.
-    Перевіряє наявність фільтрів у вихідному запиті та повертає першу доречну пораду.
+    Пріоритет перевірки: маршрут (townId) → вага (mass1) → тип кузова →
+    ключові слова вантажу → виключення вантажів → форма оплати → загальна порада.
+    Повертає першу релевантну пораду — ту фільтр якої найбільш звужує результати.
 
     Args:
         search_request: Словник запиту що був відправлений в lardi-connector.
@@ -89,6 +80,8 @@ def _build_zero_results_suggestion(search_request: dict) -> str:
     has_mass1 = search_request.get("mass1") is not None
     has_body_type = bool(search_request.get("bodyTypeIds"))
     has_payment_form = bool(search_request.get("paymentFormIds"))
+    has_cargo_keywords = bool(search_request.get("cargos"))
+    has_exclude_keywords = bool(search_request.get("excludeCargos"))
 
     if has_town_id:
         return "Розшир район завантаження до область або країна"
@@ -96,6 +89,10 @@ def _build_zero_results_suggestion(search_request: dict) -> str:
         return "Спробуй зменшити вагу або прибрати фільтр ваги"
     if has_body_type:
         return "Спробуй без фільтру типу кузова"
+    if has_cargo_keywords:
+        return "Спробуй прибрати фільтр за назвою вантажу — можливо такого товару зараз немає на маршруті"
+    if has_exclude_keywords:
+        return "Фільтр виключення вантажів занадто жорсткий — спробуй прибрати деякі ключові слова"
     if has_payment_form:
         return "Спробуй без фільтру форми оплати"
 
@@ -142,6 +139,14 @@ def make_search_cargo_tool(
         max_weight: float | None = None,
         load_date_from: str | None = None,
         load_date_to: str | None = None,
+        cargo_keywords: list[str] | None = None,
+        exclude_cargo_keywords: list[str] | None = None,
+        payment_form: str | None = None,
+        payment_value_type: str | None = None,
+        payment_currency: str | None = None,
+        adr_only: bool | None = None,
+        groupage: bool | None = None,
+        only_with_price: bool | None = None,
     ) -> str:
         """
         Шукає вантажі на Lardi-Trans та ранжує за паливною маржею.
@@ -153,16 +158,34 @@ def make_search_cargo_tool(
             from_location: Місто або країна відправлення (рядок, наприклад "Київ", "Харків", "Україна").
             to_location: Місто або країна призначення (рядок, наприклад "Варшава", "Польща", "Германія").
             body_type: Тип кузова українською (наприклад "тент", "реф", "бус"). Необов'язково.
-            load_type: Тип завантаження українською (наприклад "задня", "верхня", "бічна", "гідроборт"). Необов'язково.
+            load_type: Тип завантаження (наприклад "задня", "верхня", "бічна", "гідроборт"). Необов'язково.
             min_weight: Мінімальна вага вантажу в тоннах. Необов'язково.
             max_weight: Максимальна вага вантажу в тоннах. Необов'язково.
             load_date_from: Початкова дата завантаження у форматі ISO 8601 (YYYY-MM-DD). Необов'язково.
             load_date_to: Кінцева дата завантаження у форматі ISO 8601 (YYYY-MM-DD). Необов'язково.
+            cargo_keywords: Ключові слова для пошуку в назві вантажу (включення).
+                Приклад: ["зерно", "пшениця"] — показати лише зернові.
+                Витягуй з запиту якщо користувач каже "знайди зерно" або "потрібні продукти".
+            exclude_cargo_keywords: Ключові слова для виключення вантажів за назвою.
+                Приклад: ["хімія", "хімікат", "кислота", "ADR"] — виключити небезпечні вантажі.
+                Витягуй якщо користувач каже "без хімії", "не хочу хімікати", "без ADR".
+            payment_form: Форма оплати українською: "готівка", "безготівка", "карта". Необов'язково.
+            payment_value_type: Тип суми: "за рейс" (TOTAL), "за км" (PER_KM), "за тонну" (PER_TON). Необов'язково.
+            payment_currency: Валюта: "грн" / "UAH", "USD", "EUR". За замовчуванням UAH.
+            adr_only: True — тільки ADR (небезпечні вантажі). False — без ADR. None — без фільтру.
+            groupage: True — тільки збірні вантажі (LTL). False — лише повне авто (FTL). None — без фільтру.
+            only_with_price: True — лише оголошення з вказаною ціною (без "запит вартості"). Необов'язково.
 
         Returns:
             JSON рядок з топ-3 результатами за паливною маржею або пропозиціями при 0 результатах.
         """
-        from app.constants import BODY_TYPE_UA_TO_ID, LOAD_TYPE_UA_TO_CODE
+        from app.constants import (
+            BODY_TYPE_UA_TO_ID,
+            LOAD_TYPE_UA_TO_CODE,
+            PAYMENT_FORM_UA_TO_ID,
+            PAYMENT_CURRENCY_UA_TO_ID,
+            PAYMENT_VALUE_TYPE_UA_TO_CODE,
+        )
 
         # Отримуємо поточну ціну палива
         fuel_price = await fuel_price_service.get_price(redis_client)
@@ -219,16 +242,60 @@ def make_search_cargo_tool(
                     raw_value=load_type,
                 )
 
+        # Розв'язуємо форму оплати (готівка/безготівка/карта → ID)
+        payment_form_ids: list[int] | None = None
+        if payment_form:
+            resolved_pf = PAYMENT_FORM_UA_TO_ID.get(payment_form.lower().strip())
+            if resolved_pf:
+                payment_form_ids = [resolved_pf]
+            else:
+                log.warning(
+                    "intent_filter_cast_failed",
+                    field="paymentForm",
+                    raw_value=payment_form,
+                )
+
+        # Розв'язуємо валюту оплати (грн/USD/EUR → ID)
+        payment_currency_id: int = 4  # UAH за замовчуванням
+        if payment_currency:
+            resolved_curr = PAYMENT_CURRENCY_UA_TO_ID.get(payment_currency.lower().strip())
+            if resolved_curr is not None:
+                payment_currency_id = resolved_curr
+            else:
+                log.warning(
+                    "intent_filter_cast_failed",
+                    field="paymentCurrency",
+                    raw_value=payment_currency,
+                )
+
+        # Розв'язуємо тип суми оплати (за рейс / за км / за тонну)
+        resolved_pvt: str | None = None
+        if payment_value_type:
+            resolved_pvt = PAYMENT_VALUE_TYPE_UA_TO_CODE.get(
+                payment_value_type.lower().strip()
+            )
+            if not resolved_pvt:
+                log.warning(
+                    "intent_filter_cast_failed",
+                    field="paymentValueType",
+                    raw_value=payment_value_type,
+                )
+
         # Формуємо запит до lardi-connector
         search_request: dict[str, Any] = {
             "directionFrom": from_direction,
             "directionTo": to_direction,
             "size": 50,  # отримуємо більше для кращого ранжування
+            "paymentCurrencyId": payment_currency_id,
         }
+        if resolved_pvt:
+            search_request["paymentValueType"] = resolved_pvt
         if body_type_ids:
             search_request["bodyTypeIds"] = body_type_ids
         if load_type_codes:
             search_request["loadTypes"] = load_type_codes
+        if payment_form_ids:
+            search_request["paymentFormIds"] = payment_form_ids
         if min_weight is not None:
             search_request["mass1"] = min_weight
         if max_weight is not None:
@@ -237,6 +304,18 @@ def make_search_cargo_tool(
             search_request["dateFromISO"] = load_date_from
         if load_date_to:
             search_request["dateToISO"] = load_date_to
+        # Фільтр по назві вантажу (текстовий пошук Lardi)
+        if cargo_keywords:
+            search_request["cargos"] = cargo_keywords
+        if exclude_cargo_keywords:
+            search_request["excludeCargos"] = exclude_cargo_keywords
+        # ADR, збірні, тільки з ціною
+        if adr_only is not None:
+            search_request["adr"] = adr_only
+        if groupage is not None:
+            search_request["groupage"] = groupage
+        if only_with_price is not None:
+            search_request["onlyWithStavka"] = only_with_price
 
         # Викликаємо lardi-connector
         try:

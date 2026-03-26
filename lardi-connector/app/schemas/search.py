@@ -63,6 +63,14 @@ class CargoSearchRequest(BaseModel):
         onlyActual: Показувати тільки актуальні вантажі (за замовчуванням True).
         distanceKmFrom: Мінімальна відстань маршруту в кілометрах.
         distanceKmTo: Максимальна відстань маршруту в кілометрах.
+        cargos: Ключові слова для пошуку в назві вантажу (включення), напр. ["зерно", "пшениця"].
+        excludeCargos: Ключові слова для виключення вантажів за назвою, напр. ["хімія", "кислота"].
+        adr: Якщо True — тільки вантажі з ADR (небезпечні). Якщо False — без ADR.
+        groupage: Якщо True — тільки збірні вантажі (LTL). Якщо False — лише FTL.
+        onlyWithStavka: Якщо True — лише оголошення з вказаною ціною (без "запит вартості").
+        onlyNew: Якщо True — лише нові оголошення (без повторних).
+        length1: Мінімальна довжина вантажу в метрах / лдм.
+        length2: Максимальна довжина вантажу в метрах / лдм.
     """
 
     directionFrom: Direction
@@ -83,6 +91,18 @@ class CargoSearchRequest(BaseModel):
     onlyActual: bool = True
     distanceKmFrom: float | None = None
     distanceKmTo: float | None = None
+    # --- Фільтри по назві вантажу (текстовий пошук Lardi) ---
+    cargos: list[str] | None = None
+    excludeCargos: list[str] | None = None
+    # --- ADR / небезпечні вантажі ---
+    adr: bool | None = None
+    # --- Додаткові поведінкові фільтри ---
+    groupage: bool | None = None
+    onlyWithStavka: bool | None = None
+    onlyNew: bool | None = None
+    # --- Фізичні розміри вантажу (метри / лдм) ---
+    length1: float | None = None
+    length2: float | None = None
 
 
 class WaypointInfo(BaseModel):
